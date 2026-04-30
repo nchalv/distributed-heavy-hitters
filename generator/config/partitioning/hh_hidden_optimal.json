@@ -1,0 +1,15 @@
+{
+  "policy": "hh_hidden_optimal",
+  "top_n": 200,
+  "distractor_min_ratio": 0.55,
+  "distractor_max_ratio": 0.995,
+  "distractor_count_ratio": 4.0,
+  "distractor_subset_frac_range": [0.03, 0.08],
+  "distractor_home_mass_frac": 0.9,
+  "trap_partition_count": 6,
+  "distractor_trap_prob": 0.85,
+  "partition_mass_imbalance": 0.3,
+  "max_partition_mass_frac": 0.03,
+  "local_detection_threshold_scale": 0.6,
+  "hh_overflow_spread_power": 0.5
+}

@@ -1,0 +1,9 @@
+{
+  "policy": "synthetic_mixture",
+  "mode_probs": [0.3, 0.3, 0.4],
+  "normal_subset_frac_range": [0.5, 1.0],
+  "normal_std_frac_range": [0.1, 0.3],
+  "skew_mass_frac_range": [0.7, 0.9],
+  "skew_subset_frac_range": [0.05, 0.15],
+  "rest_subset_frac_range": [0.1, 0.5]
+}

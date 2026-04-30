@@ -1,0 +1,11 @@
+[
+  {
+    "type": "flattened",
+    "duration": 20,
+    "params": {
+      "n": 200,
+      "num_hh": 400
+    },
+    "n": 200
+  }
+]

@@ -1,0 +1,5 @@
+{
+  "generation": "../generation/default.json",
+  "scenario": "../scenarios/default.json",
+  "partitioning": "../partitioning/synthetic_mixture.json"
+}

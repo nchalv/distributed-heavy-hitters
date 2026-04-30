@@ -1,0 +1,5 @@
+{
+  "generation": "../generation/round_robin.json",
+  "scenario": "../scenarios/default.json",
+  "partitioning": "../partitioning/round_robin.json"
+}

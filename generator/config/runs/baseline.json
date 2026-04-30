@@ -1,0 +1,5 @@
+{
+  "generation": "../generation/baseline.json",
+  "scenario": "../scenarios/baseline.json",
+  "partitioning": "../partitioning/synthetic_mixture_skewed.json"
+}

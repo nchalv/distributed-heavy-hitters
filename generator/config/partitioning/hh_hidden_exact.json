@@ -1,0 +1,8 @@
+{
+  "policy": "hh_hidden_exact",
+  "top_n": 200,
+  "partition_mass_imbalance": 0.3,
+  "max_partition_mass_frac": 0.03,
+  "local_detection_threshold_scale": 0.6,
+  "hh_overflow_spread_power": 0.5
+}

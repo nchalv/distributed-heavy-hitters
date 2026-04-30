@@ -1,0 +1,60 @@
+[
+  {
+    "type": "normal",
+    "duration": 2,
+    "params": {
+      "n": 200
+    },
+    "n": 200
+  },
+  {
+    "type": "flattened",
+    "duration": 2,
+    "params": {
+      "n": 200,
+      "num_hh": 100
+    },
+    "n": 200,
+    "transition": {
+      "from": "normal",
+      "transition_windows": 13,
+      "from_params": {
+        "n": 200
+      },
+      "n": 200
+    }
+  },
+  {
+    "type": "zipfian",
+    "duration": 2,
+    "params": {
+      "s": 1.1
+    },
+    "n": 200,
+    "transition": {
+      "from": "flattened",
+      "transition_windows": 13,
+      "from_params": {
+        "n": 200,
+        "num_hh": 100
+      },
+      "n": 200
+    }
+  },
+  {
+    "type": "normal",
+    "duration": 2,
+    "params": {
+      "n": 200
+    },
+    "n": 200,
+    "transition": {
+      "from": "zipfian",
+      "transition_windows": 13,
+      "from_params": {
+        "s": 1.1
+      },
+      "n": 200
+    }
+  }
+]

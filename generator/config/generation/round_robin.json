@@ -1,0 +1,20 @@
+{
+  "seed": 42,
+  "window_size": 1000000,
+  "num_keys": 10000,
+  "n": 200,
+  "m": 20,
+  "output_dir": "generated",
+  "stream_file": "stream_round_robin.pkl.gz",
+  "summary_file": "summary_round_robin.pkl.gz",
+  "stream_json_file": "stream_round_robin.json.gz",
+  "plot_format": "png",
+  "plot_distr": true,
+  "plot_skew": true,
+  "hot_key_drift_pct": 0,
+  "max_rel_freq_delta_pct": 0,
+  "new_key_pct": 0,
+  "newborn_hot_birth_prob": 0.05,
+  "max_hot_newborn_frac": 0.1,
+  "save_windows_separately": false
+}

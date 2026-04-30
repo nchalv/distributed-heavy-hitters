@@ -1,0 +1,5 @@
+{
+  "generation": "../generation/hh_hidden_exact.json",
+  "scenario": "../scenarios/coverage_stress.json",
+  "partitioning": "../partitioning/hh_hidden_exact.json"
+}

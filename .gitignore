@@ -1,0 +1,69 @@
+# Python caches and environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Python packaging/build output
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# C/C++ and CMake build output
+evaluator/build/
+**/cmake-build-*/
+*.o
+*.so
+
+# Generator outputs
+generator/generated/
+generator/plots/
+
+# Data-preparation outputs and raw traces
+data_preparation/outputs/
+data_preparation/generated/
+data_preparation/*.jsonl
+data_preparation/*.jsonl.gz
+data_preparation/*_metadata.json
+*.pcap
+*.pcap.gz
+*.pcapng
+*.pcapng.gz
+
+# Experiment outputs
+experiments/runs/
+
+# Ad hoc output roots
+/outputs/
+/artifacts/
+/tmp/
+
+# LaTeX build products
+paper/*.aux
+paper/*.bbl
+paper/*.bcf
+paper/*.blg
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.log
+paper/*.out
+paper/*.run.xml
+paper/*.synctex.gz
+paper/*.toc
+
+# Editor and OS metadata
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Codex/local agent metadata
+.codex
+**/.codex

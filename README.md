@@ -18,8 +18,8 @@ the resulting distributed stream.
   policies, and tests.
 - `experiments/`: Python orchestration for evaluator sweeps and generated run
   artifacts.
-- `docs/`: supplementary notes and reference material.
-- `third_party/`: external code kept for comparison, provenance, or reference.
+- `references/`: papers and external reference material used while developing
+  the project.
 
 The component READMEs contain lower-level details:
 

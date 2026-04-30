@@ -49,30 +49,7 @@ def _load_component(value, base_dir):
 
 
 def _load_run_configuration(args):
-    """Load either the new separated config set or a legacy combined params file."""
-    if args.params:
-        params_path = Path(args.params).resolve()
-        params = _load_json(params_path)
-        generation_config = {k: v for k, v in params.items() if k != "partitioning"}
-        partitioning_config = params.get("partitioning", {})
-        scenario_path = (
-            Path(args.scenario).resolve()
-            if args.scenario
-            else (CONFIG_DIR / "scenarios" / "default.json").resolve()
-        )
-        scenario = [] if args.real_counts else _load_json(scenario_path)
-        return {
-            "mode": "legacy_params",
-            "run_config_path": None,
-            "generation_config": generation_config,
-            "generation_path": params_path,
-            "partitioning_config": partitioning_config,
-            "partitioning_path": None,
-            "scenario": scenario,
-            "scenario_path": None if args.real_counts else scenario_path,
-            "legacy_params_path": params_path,
-        }
-
+    """Load the separated generation, partitioning, and scenario configs."""
     run_config_path = Path(args.run_config).resolve()
     run_config = _load_json(run_config_path)
     run_base = run_config_path.parent
@@ -100,7 +77,6 @@ def _load_run_configuration(args):
         "partitioning_path": partitioning_path,
         "scenario": scenario,
         "scenario_path": scenario_path,
-        "legacy_params_path": None,
     }
 
 
@@ -134,11 +110,6 @@ parser.add_argument(
     "--scenario",
     default=None,
     help="Override scenario config path for generated global counts.",
-)
-parser.add_argument(
-    "--params",
-    default=None,
-    help="Legacy combined params JSON. Prefer --run-config for new runs.",
 )
 parser.add_argument(
     "--real-counts",
@@ -213,7 +184,6 @@ with open(run_dir / "manifest.json", "w", encoding="utf-8") as f:
             "generation": None if resolved["generation_path"] is None else str(resolved["generation_path"]),
             "partitioning": None if resolved["partitioning_path"] is None else str(resolved["partitioning_path"]),
             "scenario": None if resolved["scenario_path"] is None else str(resolved["scenario_path"]),
-            "legacy_params": None if resolved["legacy_params_path"] is None else str(resolved["legacy_params_path"]),
             "real_counts": None if args.real_counts is None else str(Path(args.real_counts).resolve()),
             "streams_dir": str(streams_dir),
             "plots_dir": str(plots_dir),

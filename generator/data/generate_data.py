@@ -938,28 +938,3 @@ def prepare_and_store_data(seed=42, total_items=10_000, num_keys = 1_000, n = 10
             save_compressed_json(stream, json_gz_path)
             print(f"Saved partitioned counts JSON: {json_gz_path}")
 
-
-
-# === Main Script ===
-if __name__ == "__main__":
-    SEED = 42
-
-    total_items = 10_000
-    num_keys = 1_000
-    n = 100
-    m=10
-
-    scenario = [
-        {'type': 'uniform', 'duration': 2, 'params': {}, 'n': n},
-        {'type': 'normal', 'duration': 4, 'params': {'n': n}, 'n': n,
-         'transition': {'from': 'uniform', 'transition_windows': 4, 'from_params': {}, 'n': n}},
-        {'type': 'flattened', 'duration': 4, 'params': {'n': n, 'num_hh': 5}, 'n': n,
-         'transition': {'from': 'normal', 'transition_windows': 10, 'from_params': {'n': n}, 'n': n}},
-        {'type': 'zipfian', 'duration': 3, 'params': {'s': 1.5}, 'n': n,
-         'transition': {'from': 'flattened', 'transition_windows': 10, 'from_params': {'n': n, 'num_hh': 5}, 'n': n}},
-        {'type': 'zipfian', 'duration': 2, 'params': {'s': 2.0}, 'n': n,
-         'transition': {'from': 'zipfian', 'transition_windows': 5, 'from_params': {'s': 1.5}, 'n': n}},
-        {'type': 'normal', 'duration': 2, 'params': {'n': n}, 'n': n,
-         'transition': {'from': 'zipfian', 'transition_windows': 15, 'from_params': {'s': 2.0}, 'n': n}},
-    ]
-    prepare_and_store_data(SEED, total_items, num_keys, n, m, scenario, path = 'stream_data.pkl.gz', summ_path = 'summ_data.pkl.gz')

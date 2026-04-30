@@ -189,15 +189,16 @@ the generator re-indexes them.
 ## Dependencies
 
 Python is used for data preparation, generation, and experiment orchestration.
-Use a project-local `.venv` environment:
+Use a project-local `.hh-venv` environment:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .hh-venv
+source .hh-venv/bin/activate
 pip install -r requirements.txt
 ```
 
-The main Python dependencies are:
+`requirements.txt` uses bounded dependency ranges rather than exact pins. The
+main Python dependencies are:
 
 - `numpy` and `scipy` for synthetic distribution generation.
 - `matplotlib` for generator and experiment plots.

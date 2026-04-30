@@ -189,11 +189,20 @@ the generator re-indexes them.
 ## Dependencies
 
 Python is used for data preparation, generation, and experiment orchestration.
-The CAIDA converter requires `dpkt` when processing pcap files:
+Use a project-local `.venv` environment:
 
 ```bash
-pip install dpkt
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
+
+The main Python dependencies are:
+
+- `numpy` and `scipy` for synthetic distribution generation.
+- `matplotlib` for generator and experiment plots.
+- `dpkt` for CAIDA pcap preprocessing.
+- `ijson` for streaming inspection utilities.
 
 The evaluator requires a C++17 compiler, CMake, zlib development headers, and a
 standard POSIX environment. See [evaluator/README.md](evaluator/README.md) for

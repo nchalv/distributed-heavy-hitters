@@ -47,16 +47,40 @@ experiments/runs/
 
 # LaTeX build products
 paper/*.aux
+paper/*.acn
+paper/*.acr
+paper/*.alg
 paper/*.bbl
 paper/*.bcf
 paper/*.blg
+paper/*.brf
+paper/*.cut
+paper/*.dvi
+paper/*.ent
 paper/*.fdb_latexmk
 paper/*.fls
+paper/*.glg
+paper/*.glo
+paper/*.gls
+paper/*.idx
+paper/*.ilg
+paper/*.ind
+paper/*.ist
+paper/*.loa
+paper/*.lof
 paper/*.log
+paper/*.lol
+paper/*.lot
+paper/*.nav
 paper/*.out
+paper/*.pdf
+paper/*.ps
+paper/*.snm
 paper/*.run.xml
 paper/*.synctex.gz
 paper/*.toc
+paper/*.vrb
+paper/*.xdv
 
 # Editor and OS metadata
 .idea/

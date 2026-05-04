@@ -1,4 +1,4 @@
-.PHONY: all clean build release debug
+.PHONY: all clean build release debug test
 MAKEFLAGS += --no-print-directory
 
 # Default target
@@ -21,7 +21,7 @@ debug:
 clean:
 	@echo "Cleaning project..."
 	@rm -rf build/
-	@rm -f hh_run hh_bench test_basic
+	@rm -f hh_run hh_bench hh_tests
 	@find . -name "*.o" -delete 2>/dev/null || true
 	@find . -name "cmake-build-*" -type d -exec rm -rf {} + 2>/dev/null || true
 	@echo "Done..."
@@ -36,7 +36,7 @@ bench: release
 	./build/hh_bench
 
 test: debug
-	./build/test_basic
+	@ctest --test-dir build --output-on-failure
 
 # Help target
 help:

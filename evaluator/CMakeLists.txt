@@ -113,9 +113,9 @@ target_link_libraries(hh_bench PRIVATE hh_core)
 
 # ---- Tests ----
 enable_testing()
-add_executable(test_basic tests/test_basic.cpp)
-target_link_libraries(test_basic PRIVATE hh_core)
-add_test(NAME basic COMMAND test_basic)
+add_executable(hh_tests tests/hh_tests.cpp)
+target_link_libraries(hh_tests PRIVATE hh_core)
+add_test(NAME hh_tests COMMAND hh_tests)
 
 # ---- Clean target ----
 if(CMAKE_SCRIPT_MODE_FILE)

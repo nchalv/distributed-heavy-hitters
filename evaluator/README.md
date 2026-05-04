@@ -52,7 +52,7 @@ For quick local rebuilds there is also an evaluator-local `makefile`:
 
 ## Requirements
 - C++17 compiler (gcc/clang).
-- CMake ≥ 3.15.
+- CMake >= 3.16.
 - zlib development headers (for gzip via `zstr`).
 - Standard POSIX environment (pthread); no external runtime services required.
 

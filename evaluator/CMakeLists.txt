@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.16)
 project(heavyheads LANGUAGES C CXX)
 
 # ---- Build config ----
@@ -122,12 +122,12 @@ if(CMAKE_SCRIPT_MODE_FILE)
     # This allows running: cmake -P CMakeLists.txt
     message(STATUS "Cleaning project...")
     file(REMOVE_RECURSE ${CMAKE_SOURCE_DIR}/build)
-    file(REMOVE ${CMAKE_SOURCE_DIR}/hh_run ${CMAKE_SOURCE_DIR}/hh_bench ${CMAKE_SOURCE_DIR}/test_basic)
+    file(REMOVE ${CMAKE_SOURCE_DIR}/hh_run ${CMAKE_SOURCE_DIR}/hh_bench ${CMAKE_SOURCE_DIR}/hh_tests)
 else()
     # Regular build mode
     add_custom_target(project-clean
         COMMAND ${CMAKE_COMMAND} -E remove_directory ${CMAKE_SOURCE_DIR}/build
-        COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_SOURCE_DIR}/hh_run ${CMAKE_SOURCE_DIR}/hh_bench ${CMAKE_SOURCE_DIR}/test_basic
+        COMMAND ${CMAKE_COMMAND} -E remove ${CMAKE_SOURCE_DIR}/hh_run ${CMAKE_SOURCE_DIR}/hh_bench ${CMAKE_SOURCE_DIR}/hh_tests
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMENT "Cleaning project from source directory"
     )

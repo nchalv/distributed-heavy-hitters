@@ -26,26 +26,16 @@ DEFAULT_BIN = EVALUATOR_ROOT / "build" / "hh_bench"
 DEFAULTS = {
     "r_m": "0.03",
     "alpha_req": "0.98",
-    "rho": "0.50",
-    "rho_a": "0.50",
-    "calib_window": "5",
     "delta_m": "0.10",
-    "trend_h": "3",
-    "lambda_a": "0.50",
-    "lambda_g": "0.50",
+    "amb_adjust": "on",
     "ss_eps": "per-item",
 }
 
 SWEEPS = {
     "r_m": ["0.01", "0.02", "0.03", "0.05", "0.08"],
     "alpha_req": ["0.90", "0.95", "0.98", "0.995"],
-    "rho": ["0.00", "0.25", "0.50", "0.75", "0.90"],
-    "rho_a": ["0.00", "0.25", "0.50", "0.75", "0.90"],
-    "calib_window": ["2", "3", "5", "8", "12"],
     "delta_m": ["0.05", "0.10", "0.20", "0.30"],
-    "trend_h": ["2", "3", "5", "8"],
-    "lambda_a": ["0.00", "0.25", "0.50", "1.00", "1.50"],
-    "lambda_g": ["0.00", "0.25", "0.50", "1.00", "1.50"],
+    "amb_adjust": ["off", "on"],
 }
 
 
@@ -68,7 +58,7 @@ def parse_args() -> argparse.Namespace:
                    help="Comma-separated per-partition memory budgets.")
     p.add_argument("--topk", type=int, default=0, help="Optional top-k overlap.")
     p.add_argument("--profile", choices=["quick", "full"], default="quick",
-                   help="quick runs one-at-a-time sweeps; full also runs pairwise lambda grid.")
+                   help="Run the standard one-at-a-time sweeps.")
     p.add_argument("--skip-run", action="store_true",
                    help="Only plot existing CSV files in --run-dir.")
     p.add_argument("--run-dir", default="",
@@ -110,13 +100,11 @@ def method_string(kind: str, params: Dict[str, str]) -> str:
         "ss[policy=difficulty "
         f"alpha-req={params['alpha_req']} "
         f"r-m={params['r_m']} "
-        f"rho={params['rho']} "
-        f"rho-a={params['rho_a']} "
-        f"calib-window={params['calib_window']} "
         f"delta-m={params['delta_m']} "
-        f"trend-h={params['trend_h']} "
-        f"lambda-a={params['lambda_a']} "
-        f"lambda-g={params['lambda_g']} "
+        "res-guard-window=2 "
+        "censored-control=on "
+        "probe-residual-guard=on "
+        f"amb-adjust={params['amb_adjust']} "
         "diff-mode=predictive "
         f"ss-eps={params['ss_eps']}]"
     )
@@ -137,10 +125,12 @@ def method_string(kind: str, params: Dict[str, str]) -> str:
         hyb = (
             "hybrid[hyb-head=candidate hyb-tail=difficulty "
             f"alpha-req={params['alpha_req']} r-m={params['r_m']} "
-            f"rho={params['rho']} rho-a={params['rho_a']} "
-            f"calib-window={params['calib_window']} delta-m={params['delta_m']} "
-            f"trend-h={params['trend_h']} lambda-a={params['lambda_a']} "
-            f"lambda-g={params['lambda_g']} diff-mode=predictive ss-eps={params['ss_eps']}]"
+            f"delta-m={params['delta_m']} "
+            "res-guard-window=2 "
+            "censored-control=on "
+            "probe-residual-guard=on "
+            f"amb-adjust={params['amb_adjust']} "
+            f"diff-mode=predictive ss-eps={params['ss_eps']}]"
         )
         return f"oracle,{diff},{hyb}"
     raise ValueError(kind)
@@ -175,21 +165,6 @@ def planned_runs(datasets: List[Tuple[str, Path]], mems: List[int], profile: str
                         "params": params,
                         "methods": method_string("difficulty", params),
                     })
-            if profile == "full":
-                for la in SWEEPS["lambda_a"]:
-                    for lg in SWEEPS["lambda_g"]:
-                        params = dict(DEFAULTS)
-                        params["lambda_a"] = la
-                        params["lambda_g"] = lg
-                        runs.append({
-                            "dataset": dlabel, "path": dpath, "mem": mem,
-                            "group": "grid_lambda",
-                            "name": f"lambdaA_{sanitize(la)}_lambdaG_{sanitize(lg)}_mem{mem}",
-                            "sweep_param": "lambda_grid",
-                            "sweep_value": f"{la}:{lg}",
-                            "params": params,
-                            "methods": method_string("difficulty", params),
-                        })
     return runs
 
 

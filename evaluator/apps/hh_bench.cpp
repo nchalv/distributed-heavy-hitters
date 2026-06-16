@@ -82,6 +82,13 @@ struct CsvRow {
 
   std::size_t q_current{0};
   std::size_t q_next{0};
+  double margin_alpha{NAN};
+  int service_violation{-1};
+  std::size_t q_up{0};
+  std::size_t q_baseline{0};
+  int probe_issued{-1};
+  int probe_failed{-1};
+  std::size_t q_req_unclipped{0};
   std::size_t q_req{0};
   std::size_t q_eff_replay{0};
   std::size_t q_eff_pred{0};
@@ -90,9 +97,6 @@ struct CsvRow {
   int miss_eff{-1};
   double over_req{NAN};
   double over_eff{NAN};
-  double ambiguity_da{NAN};
-  double ambiguity_da_hat{NAN};
-  double ambiguity_trend{NAN};
   double calib_bias{NAN};
 
   CertificationMetrics cert;
@@ -182,9 +186,11 @@ static std::string csv_escape(const std::string& s) {
 static void write_csv_header(std::ostream& os) {
   os << "window,method,method_type,N_global,threshold,"
      << "hh_precision,hh_recall,hh_f1,aae,are,topk_overlap,"
-     << "q_current,q_next,q_req,q_eff_replay,q_eff_pred,q_eff_pred_tilde,"
+     << "q_current,q_next,margin_alpha,service_violation,q_up,q_baseline,"
+     << "probe_issued,probe_failed,"
+     << "q_req_unclipped,q_req,q_eff_replay,q_eff_pred,q_eff_pred_tilde,"
      << "miss_req,miss_eff,over_req,over_eff,"
-     << "ambiguity_da,ambiguity_da_hat,ambiguity_trend,calib_bias,"
+     << "calib_bias,"
      << "candidate_count,candidate_hh_recall,cert_pos_count,cert_pos_precision,cert_pos_mass,"
      << "ambiguous_count,ambiguous_mass,cert_neg_count,cert_neg_mass,"
      << "interval_width_avg,interval_width_amb_avg,interval_width_max,"
@@ -220,6 +226,13 @@ static void write_csv_row(std::ostream& os, const CsvRow& r) {
      << (r.has_topk ? num(r.topk_overlap) : std::string{}) << ','
      << opt_size(r.q_current) << ','
      << opt_size(r.q_next) << ','
+     << num(r.margin_alpha) << ','
+     << opt_int(r.service_violation) << ','
+     << opt_size(r.q_up) << ','
+     << opt_size(r.q_baseline) << ','
+     << opt_int(r.probe_issued) << ','
+     << opt_int(r.probe_failed) << ','
+     << r.q_req_unclipped << ','
      << opt_size(r.q_req) << ','
      << opt_size(r.q_eff_replay) << ','
      << opt_size(r.q_eff_pred) << ','
@@ -228,9 +241,6 @@ static void write_csv_row(std::ostream& os, const CsvRow& r) {
      << opt_int(r.miss_eff) << ','
      << num(r.over_req) << ','
      << num(r.over_eff) << ','
-     << num(r.ambiguity_da) << ','
-     << num(r.ambiguity_da_hat) << ','
-     << num(r.ambiguity_trend) << ','
      << num(r.calib_bias) << ','
      << r.cert.candidate_count << ','
      << num(r.cert.candidate_hh_recall) << ','
@@ -277,13 +287,15 @@ struct Args {
   double r{0.10};              // retained for compatibility with older method specs
   double alpha_req{0.98};      // difficulty: quantile for q_Req^t
   // difficulty policy knobs
-  double rho{0.0};
-  double rho_a{0.5};
-  std::size_t calib_window{3};
   double delta_m{0.2};
-  std::size_t trend_h{3};
-  double lambda_a{0.0};
-  double lambda_g{0.0};
+  std::size_t res_guard_window{2};
+  double res_guard_decay{0.5};
+  bool symmetric_relaxation{false};
+  bool censored_control{true};
+  bool probe_residual_guard{true};
+  hh::sizing::ProbeStrategy probe_strategy{hh::sizing::ProbeStrategy::bracket};
+  double probe_pressure_gate{0.5};
+  bool ambiguity_adjust{true};
   double r_m{0.03};
   DifficultyMode diff_mode{DifficultyMode::Predictive};
   bool ss_per_item_eps{true}; // SS epsilon mode: false=global eps_max, true=per-item eps_i
@@ -305,13 +317,15 @@ struct MethodCfg {
   Policy policy;
   double r;
   double alpha_req;
-  double rho;
-  double rho_a;
-  std::size_t calib_window;
   double delta_m;
-  std::size_t trend_h;
-  double lambda_a;
-  double lambda_g;
+  std::size_t res_guard_window;
+  double res_guard_decay;
+  bool symmetric_relaxation;
+  bool censored_control;
+  bool probe_residual_guard;
+  hh::sizing::ProbeStrategy probe_strategy;
+  double probe_pressure_gate;
+  bool ambiguity_adjust;
   double r_m;
   DifficultyMode diff_mode;
   bool ss_per_item_eps;
@@ -330,8 +344,14 @@ static bool parse_args(int argc, char** argv, Args& a) {
     std::cerr << "usage: " << argv[0]
               << " <stream.json.gz> <m> <n_param> <memKiB_each> <methods_csv>"
               << " [--csv-out FILE] [--topk K] [--policy difficulty|static] [--alpha-req A]"
-              << " [--rho RHO] [--rho-a RA] [--calib-window L] [--delta-m D]"
-              << " [--trend-h H] [--lambda-a LA] [--lambda-g LG]"
+              << " [--delta-m D (deprecated, ignored)]"
+              << " [--res-guard-window W] [--res-guard-decay B]"
+              << " [--symmetric-relaxation on|off]"
+              << " [--downward-probing on|off]"
+              << " [--probe-residual-guard on|off]"
+              << " [--probe-strategy bracket|comfort|pressure]"
+              << " [--probe-pressure-gate RHO]"
+              << " [--amb-adjust on|off]"
               << " [--r-m RM] [--diff-mode predictive|reactive-req|reactive-eff]"
               << " [--ss-eps global|per-item]"
               << " [--hl-d D] [--hl-L L] [--hl-lossy MODE] [--hl-w W]"
@@ -356,20 +376,45 @@ static bool parse_args(int argc, char** argv, Args& a) {
     else { std::cerr<<"unknown policy "<<v<<"\n"; return false; }
   } else if (flag == "--alpha-req") {
     need(1); a.alpha_req = std::stod(argv[++i]); if (a.alpha_req<=0 || a.alpha_req>=1) a.alpha_req=0.98;
-  } else if (flag == "--rho") {
-    need(1); a.rho = std::stod(argv[++i]); a.rho = std::clamp(a.rho, 0.0, 0.999999);
-  } else if (flag == "--rho-a") {
-    need(1); a.rho_a = std::stod(argv[++i]); a.rho_a = std::clamp(a.rho_a, 0.0, 0.999999);
-  } else if (flag == "--calib-window") {
-    need(1); a.calib_window = std::max<std::size_t>(1, std::stoull(argv[++i]));
   } else if (flag == "--delta-m") {
     need(1); a.delta_m = std::clamp(std::stod(argv[++i]), 0.0, 1.0);
-  } else if (flag == "--trend-h") {
-    need(1); a.trend_h = std::max<std::size_t>(2, std::stoull(argv[++i]));
-  } else if (flag == "--lambda-a") {
-    need(1); a.lambda_a = std::max(0.0, std::stod(argv[++i]));
-  } else if (flag == "--lambda-g") {
-    need(1); a.lambda_g = std::max(0.0, std::stod(argv[++i]));
+  } else if (flag == "--res-guard-window") {
+    need(1); a.res_guard_window = std::stoull(argv[++i]);
+  } else if (flag == "--res-guard-decay") {
+    need(1); a.res_guard_decay = std::clamp(std::stod(argv[++i]), 0.0, 1.0);
+  } else if (flag == "--symmetric-relaxation") {
+    need(1);
+    std::string v = argv[++i];
+    if (v == "on" || v == "true" || v == "1") a.symmetric_relaxation = true;
+    else if (v == "off" || v == "false" || v == "0") a.symmetric_relaxation = false;
+    else { std::cerr<<"--symmetric-relaxation must be on|off\n"; return false; }
+  } else if (flag == "--censored-control" || flag == "--downward-probing") {
+    need(1);
+    std::string v = argv[++i];
+    if (v == "on" || v == "true" || v == "1") a.censored_control = true;
+    else if (v == "off" || v == "false" || v == "0") a.censored_control = false;
+    else { std::cerr<<"--downward-probing must be on|off\n"; return false; }
+  } else if (flag == "--probe-residual-guard") {
+    need(1);
+    std::string v = argv[++i];
+    if (v == "on" || v == "true" || v == "1") a.probe_residual_guard = true;
+    else if (v == "off" || v == "false" || v == "0") a.probe_residual_guard = false;
+    else { std::cerr<<"--probe-residual-guard must be on|off\n"; return false; }
+  } else if (flag == "--probe-strategy") {
+    need(1);
+    std::string v = argv[++i];
+    if (v == "bracket") a.probe_strategy = hh::sizing::ProbeStrategy::bracket;
+    else if (v == "comfort") a.probe_strategy = hh::sizing::ProbeStrategy::comfort;
+    else if (v == "pressure") a.probe_strategy = hh::sizing::ProbeStrategy::pressure;
+    else { std::cerr<<"--probe-strategy must be bracket|comfort|pressure\n"; return false; }
+  } else if (flag == "--probe-pressure-gate") {
+    need(1); a.probe_pressure_gate = std::clamp(std::stod(argv[++i]), 0.0, 1.0);
+  } else if (flag == "--amb-adjust") {
+    need(1);
+    std::string v = argv[++i];
+    if (v == "on" || v == "true" || v == "1") a.ambiguity_adjust = true;
+    else if (v == "off" || v == "false" || v == "0") a.ambiguity_adjust = false;
+    else { std::cerr<<"--amb-adjust must be on|off\n"; return false; }
   } else if (flag == "--r-m") {
     need(1); a.r_m = std::max(1e-12, std::stod(argv[++i]));
   } else if (flag == "--diff-mode") {
@@ -556,7 +601,13 @@ int main(int argc, char** argv) {
   std::vector<MethodCfg> methods;
   {
     MethodCfg defaults{"", A.policy, A.r, A.alpha_req,
-                      A.rho, A.rho_a, A.calib_window, A.delta_m, A.trend_h, A.lambda_a, A.lambda_g,
+                      A.delta_m, A.res_guard_window, A.res_guard_decay,
+                      A.symmetric_relaxation,
+                      A.censored_control,
+                      A.probe_residual_guard,
+                      A.probe_strategy,
+                      A.probe_pressure_gate,
+                      A.ambiguity_adjust,
                       A.r_m, A.diff_mode, A.ss_per_item_eps,
                       A.hl_d, A.hl_L, A.hl_lossy, A.hl_w,
                       A.tail_policy, A.tail_q_factor, A.head_policy, A.q_factor};
@@ -600,20 +651,35 @@ int main(int argc, char** argv) {
                 cfg.r = std::stod(val); if (!(cfg.r>0 && cfg.r<1)) cfg.r=defaults.r;
               } else if (key == "alpha-req") {
                 cfg.alpha_req = std::stod(val); if (cfg.alpha_req<=0 || cfg.alpha_req>=1) cfg.alpha_req=defaults.alpha_req;
-              } else if (key == "rho") {
-                cfg.rho = std::clamp(std::stod(val), 0.0, 0.999999);
-              } else if (key == "rho-a") {
-                cfg.rho_a = std::clamp(std::stod(val), 0.0, 0.999999);
-              } else if (key == "calib-window") {
-                cfg.calib_window = std::max<std::size_t>(1, std::stoull(val));
               } else if (key == "delta-m") {
                 cfg.delta_m = std::clamp(std::stod(val), 0.0, 1.0);
-              } else if (key == "trend-h") {
-                cfg.trend_h = std::max<std::size_t>(2, std::stoull(val));
-              } else if (key == "lambda-a") {
-                cfg.lambda_a = std::max(0.0, std::stod(val));
-              } else if (key == "lambda-g") {
-                cfg.lambda_g = std::max(0.0, std::stod(val));
+              } else if (key == "res-guard-window") {
+                cfg.res_guard_window = std::stoull(val);
+              } else if (key == "res-guard-decay") {
+                cfg.res_guard_decay = std::clamp(std::stod(val), 0.0, 1.0);
+              } else if (key == "symmetric-relaxation") {
+                if (val == "on" || val == "true" || val == "1") cfg.symmetric_relaxation = true;
+                else if (val == "off" || val == "false" || val == "0") cfg.symmetric_relaxation = false;
+                else { std::cerr<<"symmetric-relaxation must be on|off\n"; return 4; }
+              } else if (key == "censored-control" || key == "downward-probing") {
+                if (val == "on" || val == "true" || val == "1") cfg.censored_control = true;
+                else if (val == "off" || val == "false" || val == "0") cfg.censored_control = false;
+                else { std::cerr<<"downward-probing must be on|off\n"; return 4; }
+              } else if (key == "probe-residual-guard") {
+                if (val == "on" || val == "true" || val == "1") cfg.probe_residual_guard = true;
+                else if (val == "off" || val == "false" || val == "0") cfg.probe_residual_guard = false;
+                else { std::cerr<<"probe-residual-guard must be on|off\n"; return 4; }
+              } else if (key == "probe-strategy") {
+                if (val == "bracket") cfg.probe_strategy = hh::sizing::ProbeStrategy::bracket;
+                else if (val == "comfort") cfg.probe_strategy = hh::sizing::ProbeStrategy::comfort;
+                else if (val == "pressure") cfg.probe_strategy = hh::sizing::ProbeStrategy::pressure;
+                else { std::cerr<<"probe-strategy must be bracket|comfort|pressure\n"; return 4; }
+              } else if (key == "probe-pressure-gate") {
+                cfg.probe_pressure_gate = std::clamp(std::stod(val), 0.0, 1.0);
+              } else if (key == "amb-adjust") {
+                if (val == "on" || val == "true" || val == "1") cfg.ambiguity_adjust = true;
+                else if (val == "off" || val == "false" || val == "0") cfg.ambiguity_adjust = false;
+                else { std::cerr<<"amb-adjust must be on|off\n"; return 4; }
               } else if (key == "r-m") {
                 cfg.r_m = std::max(1e-12, std::stod(val));
               } else if (key == "diff-mode") {
@@ -668,7 +734,7 @@ int main(int argc, char** argv) {
         tok.push_back(c);
       }
     }
-    if (!tok.empty()) {
+  if (!tok.empty()) {
       std::string name = tok;
       std::string opts;
       auto lb = tok.find('[');
@@ -703,20 +769,35 @@ int main(int argc, char** argv) {
             cfg.r = std::stod(val); if (!(cfg.r>0 && cfg.r<1)) cfg.r=defaults.r;
           } else if (key == "alpha-req") {
             cfg.alpha_req = std::stod(val); if (cfg.alpha_req<=0 || cfg.alpha_req>=1) cfg.alpha_req=defaults.alpha_req;
-          } else if (key == "rho") {
-            cfg.rho = std::clamp(std::stod(val), 0.0, 0.999999);
-          } else if (key == "rho-a") {
-            cfg.rho_a = std::clamp(std::stod(val), 0.0, 0.999999);
-          } else if (key == "calib-window") {
-            cfg.calib_window = std::max<std::size_t>(1, std::stoull(val));
           } else if (key == "delta-m") {
             cfg.delta_m = std::clamp(std::stod(val), 0.0, 1.0);
-          } else if (key == "trend-h") {
-            cfg.trend_h = std::max<std::size_t>(2, std::stoull(val));
-          } else if (key == "lambda-a") {
-            cfg.lambda_a = std::max(0.0, std::stod(val));
-          } else if (key == "lambda-g") {
-            cfg.lambda_g = std::max(0.0, std::stod(val));
+          } else if (key == "res-guard-window") {
+            cfg.res_guard_window = std::stoull(val);
+          } else if (key == "res-guard-decay") {
+            cfg.res_guard_decay = std::clamp(std::stod(val), 0.0, 1.0);
+          } else if (key == "symmetric-relaxation") {
+            if (val == "on" || val == "true" || val == "1") cfg.symmetric_relaxation = true;
+            else if (val == "off" || val == "false" || val == "0") cfg.symmetric_relaxation = false;
+            else { std::cerr<<"symmetric-relaxation must be on|off\n"; return 4; }
+          } else if (key == "censored-control" || key == "downward-probing") {
+            if (val == "on" || val == "true" || val == "1") cfg.censored_control = true;
+            else if (val == "off" || val == "false" || val == "0") cfg.censored_control = false;
+            else { std::cerr<<"downward-probing must be on|off\n"; return 4; }
+          } else if (key == "probe-residual-guard") {
+            if (val == "on" || val == "true" || val == "1") cfg.probe_residual_guard = true;
+            else if (val == "off" || val == "false" || val == "0") cfg.probe_residual_guard = false;
+            else { std::cerr<<"probe-residual-guard must be on|off\n"; return 4; }
+          } else if (key == "probe-strategy") {
+            if (val == "bracket") cfg.probe_strategy = hh::sizing::ProbeStrategy::bracket;
+            else if (val == "comfort") cfg.probe_strategy = hh::sizing::ProbeStrategy::comfort;
+            else if (val == "pressure") cfg.probe_strategy = hh::sizing::ProbeStrategy::pressure;
+            else { std::cerr<<"probe-strategy must be bracket|comfort|pressure\n"; return 4; }
+          } else if (key == "probe-pressure-gate") {
+            cfg.probe_pressure_gate = std::clamp(std::stod(val), 0.0, 1.0);
+          } else if (key == "amb-adjust") {
+            if (val == "on" || val == "true" || val == "1") cfg.ambiguity_adjust = true;
+            else if (val == "off" || val == "false" || val == "0") cfg.ambiguity_adjust = false;
+            else { std::cerr<<"amb-adjust must be on|off\n"; return 4; }
           } else if (key == "r-m") {
             cfg.r_m = std::max(1e-12, std::stod(val));
           } else if (key == "diff-mode") {
@@ -806,10 +887,7 @@ int main(int argc, char** argv) {
           comps.push_back("rM=" + dbl(methods[i].r_m));
           comps.push_back(std::string("mode=") + (methods[i].diff_mode == DifficultyMode::Predictive ? "predictive"
                                                    : (methods[i].diff_mode == DifficultyMode::ReactiveReq ? "reactive-req" : "reactive-eff")));
-          comps.push_back("rhoA=" + dbl(methods[i].rho_a));
-          comps.push_back("h=" + std::to_string(methods[i].trend_h));
-          comps.push_back("lamA=" + dbl(methods[i].lambda_a));
-          comps.push_back("lamG=" + dbl(methods[i].lambda_g));
+          comps.push_back(std::string("amb=") + (methods[i].ambiguity_adjust ? "on" : "off"));
           break;
         case Policy::Static:
           break;
@@ -1232,13 +1310,15 @@ int main(int argc, char** argv) {
         cfg_h.n_param = A.n_param;
         cfg_h.r = hyb_cfg.r;
         cfg_h.alpha_req = hyb_cfg.alpha_req;
-        cfg_h.rho = hyb_cfg.rho;
-        cfg_h.rho_a = hyb_cfg.rho_a;
-        cfg_h.calib_window = hyb_cfg.calib_window;
         cfg_h.delta_m = hyb_cfg.delta_m;
-        cfg_h.trend_h = hyb_cfg.trend_h;
-        cfg_h.lambda_a = hyb_cfg.lambda_a;
-        cfg_h.lambda_g = hyb_cfg.lambda_g;
+        cfg_h.residual_guard_window = hyb_cfg.res_guard_window;
+        cfg_h.residual_guard_decay = hyb_cfg.res_guard_decay;
+        cfg_h.symmetric_relaxation = hyb_cfg.symmetric_relaxation;
+        cfg_h.censored_control = hyb_cfg.censored_control;
+        cfg_h.probe_residual_guard = hyb_cfg.probe_residual_guard;
+        cfg_h.probe_strategy = hyb_cfg.probe_strategy;
+        cfg_h.probe_pressure_gate = hyb_cfg.probe_pressure_gate;
+        cfg_h.ambiguity_adjust = hyb_cfg.ambiguity_adjust;
         cfg_h.r_m = hyb_cfg.r_m;
         cfg_h.q_cur = hybrid_qa[gi];
         cfg_h.q_min = tail_floor;
@@ -1286,9 +1366,9 @@ int main(int argc, char** argv) {
           const bool control_ok = (q_eff_resid <= pending_verify[gi].q_planned);
           const bool calib_eff_ok = (q_eff_resid <= q_pred_eff_resid);
           std::cout << "  [" << std::left << std::setw(labelw) << groups[gi].label << "] " << std::right
-                    << "verify: qReq_resid=" << q_req_resid
-                    << " qEff_resid=" << q_eff_resid
-                    << " | pred(qEff_resid<=" << q_pred_eff_resid
+                    << "verify: qBaseline_resid=" << q_req_resid
+                    << " qActuation_resid=" << q_eff_resid
+                    << " | pred(qActuation_resid<=" << q_pred_eff_resid
                     << ", q=" << pending_verify[gi].q_planned << ")"
                     << " | service=" << (service_ok ? "OK" : "FAIL")
                     << " control=" << (control_ok ? "OK" : "FAIL")
@@ -1301,6 +1381,13 @@ int main(int argc, char** argv) {
         if (!A.csv_out.empty()) {
           auto& row = csv_rows[gi];
           row.q_req = q_req_resid;
+          row.q_req_unclipped = res_h.q_req_unclipped;
+          row.margin_alpha = res_h.margin_alpha;
+          row.service_violation = res_h.service_violation ? 1 : 0;
+          row.q_up = res_h.q_up;
+          row.q_baseline = res_h.q_baseline;
+          row.probe_issued = res_h.probe_issued ? 1 : 0;
+          row.probe_failed = res_h.probe_failed ? 1 : 0;
           row.q_eff_replay = q_eff_resid;
           row.q_eff_pred = res_h.q_pred;
           row.q_eff_pred_tilde = res_h.q_pred_tilde;
@@ -1308,9 +1395,6 @@ int main(int argc, char** argv) {
           row.miss_eff = hybrid_qa[gi] < q_eff_fair ? 1 : 0;
           row.over_req = q_req_resid == 0 ? NAN : static_cast<double>(hybrid_qa[gi]) / static_cast<double>(q_req_resid);
           row.over_eff = q_eff_resid == 0 ? NAN : static_cast<double>(hybrid_qa[gi]) / static_cast<double>(q_eff_resid);
-          row.ambiguity_da = res_h.da;
-          row.ambiguity_da_hat = res_h.da_hat;
-          row.ambiguity_trend = res_h.eta_a;
           row.calib_bias = res_h.b_q;
         }
         // Tail controller already operates on residual telemetry; deploy q_next directly.
@@ -1321,14 +1405,16 @@ int main(int argc, char** argv) {
         }
         if (hyb_cfg.tail_policy == TailPolicy::Difficulty) {
           std::cout << "  [" << std::left << std::setw(labelw) << groups[gi].label << "] "
-                    << std::right << "hyb_tail difficulty: Da=" << std::setprecision(4) << (std::isnan(res_h.da)?0.0:res_h.da)
+                    << std::right << "hyb_tail difficulty:"
                     << " mode=" << (hyb_cfg.diff_mode == DifficultyMode::Predictive ? "predictive"
                                     : (hyb_cfg.diff_mode == DifficultyMode::ReactiveReq ? "reactive-req" : "reactive-eff"))
-                    << " bEff=" << std::setprecision(3) << (std::isnan(res_h.b_q)?0.0:res_h.b_q)
-                    << " trend=" << std::setprecision(3) << (std::isnan(res_h.eta_a)?0.0:res_h.eta_a)
-                    << " qEffPred=" << res_h.q_pred
-                    << " qReq=" << res_h.q_req
-                    << " qEffReplay=" << res_h.q_base
+                    << " marginAlpha=" << std::setprecision(6) << res_h.margin_alpha
+                    << " violation=" << (res_h.service_violation ? "yes" : "no")
+                    << " qUp=" << res_h.q_up
+                    << " qBaseline=" << res_h.q_baseline
+                    << " qActuation=" << res_h.q_base
+                    << " probe=" << (res_h.probe_issued ? "issued"
+                                     : (res_h.probe_failed ? "failed" : "none"))
                     << "\n";
         }
       }
@@ -1370,13 +1456,15 @@ int main(int argc, char** argv) {
       cfg.n_param = A.n_param;
       cfg.r = ss_cfg.r;
       cfg.alpha_req = ss_cfg.alpha_req;
-      cfg.rho = ss_cfg.rho;
-      cfg.rho_a = ss_cfg.rho_a;
-      cfg.calib_window = ss_cfg.calib_window;
       cfg.delta_m = ss_cfg.delta_m;
-      cfg.trend_h = ss_cfg.trend_h;
-      cfg.lambda_a = ss_cfg.lambda_a;
-      cfg.lambda_g = ss_cfg.lambda_g;
+      cfg.residual_guard_window = ss_cfg.res_guard_window;
+      cfg.residual_guard_decay = ss_cfg.res_guard_decay;
+      cfg.symmetric_relaxation = ss_cfg.symmetric_relaxation;
+      cfg.censored_control = ss_cfg.censored_control;
+      cfg.probe_residual_guard = ss_cfg.probe_residual_guard;
+      cfg.probe_strategy = ss_cfg.probe_strategy;
+      cfg.probe_pressure_gate = ss_cfg.probe_pressure_gate;
+      cfg.ambiguity_adjust = ss_cfg.ambiguity_adjust;
       cfg.r_m = ss_cfg.r_m;
       cfg.q_cur = (ss_cfg.policy == Policy::Static) ? (A.n_param * ss_cfg.q_factor) : ss_q_curs[gi];
       cfg.q_cap = ss_q_caps[gi];
@@ -1414,9 +1502,9 @@ int main(int argc, char** argv) {
         const bool control_ok = (res.q_base <= pending_verify[gi].q_planned);
         const bool calib_eff_ok = (res.q_base <= static_cast<std::size_t>(std::llround(pending_verify[gi].tilde_qpred)));
         std::cout << "  [" << std::left << std::setw(labelw) << groups[gi].label << "] " << std::right
-                  << "verify: qReq=" << res.q_req
-                  << " qEff=" << res.q_base
-                  << " | pred(qEff<=" << static_cast<std::size_t>(std::llround(pending_verify[gi].tilde_qpred))
+                  << "verify: qBaseline=" << res.q_req
+                  << " qActuation=" << res.q_base
+                  << " | pred(qActuation<=" << static_cast<std::size_t>(std::llround(pending_verify[gi].tilde_qpred))
                   << ", q=" << pending_verify[gi].q_planned << ")"
                   << " | service=" << (service_ok ? "OK" : "FAIL")
                   << " control=" << (control_ok ? "OK" : "FAIL")
@@ -1435,6 +1523,13 @@ int main(int argc, char** argv) {
           const std::size_t q_req_fair = std::min(res.q_req, ss_q_caps[gi]);
           const std::size_t q_eff_fair = std::min(res.q_base, ss_q_caps[gi]);
           row.q_req = res.q_req;
+          row.q_req_unclipped = res.q_req_unclipped;
+          row.margin_alpha = res.margin_alpha;
+          row.service_violation = res.service_violation ? 1 : 0;
+          row.q_up = res.q_up;
+          row.q_baseline = res.q_baseline;
+          row.probe_issued = res.probe_issued ? 1 : 0;
+          row.probe_failed = res.probe_failed ? 1 : 0;
           row.q_eff_replay = res.q_base;
           row.q_eff_pred = res.q_pred;
           row.q_eff_pred_tilde = res.q_pred_tilde;
@@ -1442,9 +1537,6 @@ int main(int argc, char** argv) {
           row.miss_eff = ss_q_curs[gi] < q_eff_fair ? 1 : 0;
           row.over_req = res.q_req == 0 ? NAN : static_cast<double>(ss_q_curs[gi]) / static_cast<double>(res.q_req);
           row.over_eff = res.q_base == 0 ? NAN : static_cast<double>(ss_q_curs[gi]) / static_cast<double>(res.q_base);
-          row.ambiguity_da = res.da;
-          row.ambiguity_da_hat = res.da_hat;
-          row.ambiguity_trend = res.eta_a;
           row.calib_bias = res.b_q;
         }
       }
@@ -1455,21 +1547,17 @@ int main(int argc, char** argv) {
       switch (cfg.kind) {
         case sizing::PolicyKind::difficulty:
           {
-          std::cout << "difficulty, rho=" << ss_cfg.rho
-                    << ", rhoA=" << ss_cfg.rho_a
-                    << ", L=" << ss_cfg.calib_window
-                    << ", h=" << ss_cfg.trend_h
-                    << ", alphaReq=" << ss_cfg.alpha_req
+          std::cout << "difficulty, alphaReq=" << ss_cfg.alpha_req
+                    << ", ambAdjust=" << (ss_cfg.ambiguity_adjust ? "on" : "off")
                     << ", mode=" << (ss_cfg.diff_mode == DifficultyMode::Predictive ? "predictive"
                                      : (ss_cfg.diff_mode == DifficultyMode::ReactiveReq ? "reactive-req" : "reactive-eff"))
-                    << ", lambdaA=" << ss_cfg.lambda_a
-                    << ", lambdaG=" << ss_cfg.lambda_g
-                    << ", Da=" << std::setprecision(4) << (std::isnan(res.da)?0.0:res.da)
-                    << ", bEff=" << std::setprecision(3) << (std::isnan(res.b_q)?0.0:res.b_q)
-                    << ", trend=" << std::setprecision(3) << (std::isnan(res.eta_a)?0.0:res.eta_a)
-                    << ", qEffPred=" << res.q_pred
-                    << ", qReq=" << res.q_req
-                    << ", qEffReplay=" << res.q_base;
+                    << ", marginAlpha=" << std::setprecision(6) << res.margin_alpha
+                    << ", violation=" << (res.service_violation ? "yes" : "no")
+                    << ", qUp=" << res.q_up
+                    << ", qBaseline=" << res.q_baseline
+                    << ", qActuation=" << res.q_base
+                    << ", probe=" << (res.probe_issued ? "issued"
+                                       : (res.probe_failed ? "failed" : "none"));
           break;
           }
         default: std::cout << "fixed";

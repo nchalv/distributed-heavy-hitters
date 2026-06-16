@@ -1,0 +1,5 @@
+{
+  "generation": "../generation/calibration_synthetic_n100.json",
+  "scenario": "../scenarios/calibration_mixed_n100.json",
+  "partitioning": "../partitioning/persistent_ambiguity_adversary_n100.json"
+}

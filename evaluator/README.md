@@ -67,7 +67,7 @@ Single-method exploration with per-window telemetry:
 ```
 - `m`: number of partitions; `n_param`: global HH denominator (strict threshold `floor(N/n_param)+1`, i.e., `p(k) > 1/n`).
 - `memKiB_each`: memory budget per partition; `--q kN` sets static SS capacity to `k * n_param`.
-- Policies (SpaceSaving only): `difficulty` applies the requirement-based predictive controller; `static` holds `q` fixed.
+- Policies (SpaceSaving only): `difficulty` applies the certificate-pressure controller; `static` holds `q` fixed. The adaptive controller raises capacity immediately after a service-margin violation and can probe downward only after repeated sufficient observations.
 - Space-Saving exports per-item error certificates by default. Pass `--ss-eps global` only for the coarser global-maximum error mode.
 - `hybrid` uses an exact head (`q_e`) plus SS tail (`q_a`); the tail can be fixed or controlled with the same difficulty policy via `--hyb-tail`.
 
@@ -105,5 +105,5 @@ default; pass `--profile full` to add the pairwise ambiguity-gain grid. Use
 `--dry-run` to inspect the generated `hh_bench` commands without executing them.
 
 ## Relation to the paper
-- The implemented adaptive sizing policy is the paper’s requirement-based controller: it estimates the current per-key capacity requirement over the certified/ambiguous candidate set, smooths the effective requirement in log space, and applies one-sided residual calibration before choosing the next-window capacity.
+- The default adaptive sizing policy is the paper's one-sided, residual-guarded controller. Service violations produce an upward capacity demand from the observed certificate margin. Sufficient observations certify only the deployed capacity; memory is released through explicit geometric probes. A failed probe recovers through a fresh upward response, and its residual evidence limits the depth of later probes until a lower capacity is confirmed sufficient.
 - The hybrid sketch mirrors the paper’s head/tail decomposition: an exact head seeded from the previous window’s certified set, plus an adaptive SS tail sized for the remaining mass.

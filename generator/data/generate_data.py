@@ -18,7 +18,9 @@ from data.distributions import (
     ZipfianDistributionGenerator,
     UniformDistributionGenerator,
     NormalDistributionGenerator,
-    FlattenedHHDistributionGenerator
+    FlattenedHHDistributionGenerator,
+    HHBackgroundDistributionGenerator,
+    PersistentBoundaryDistributionGenerator,
 )
 from data.partitioning import assign_partitions
 from data.data_utils import save_compressed_json
@@ -74,6 +76,10 @@ def run_scenario(scenario, total_items, num_keys, default_n):
         'uniform': UniformDistributionGenerator,
         'normal': NormalDistributionGenerator,
         'flattened': FlattenedHHDistributionGenerator,
+        'controlled_hh_background': HHBackgroundDistributionGenerator,
+        # Backward-compatible alias for previously generated scenario files.
+        'hh_background': HHBackgroundDistributionGenerator,
+        'persistent_boundary': PersistentBoundaryDistributionGenerator,
         'zipfian': ZipfianDistributionGenerator
     }
 
@@ -618,10 +624,11 @@ def reconstruct_streams_to_window_files(
 
     Returns the directory where window files were written.
     """
-    base = output_base_path
-    if base.endswith(".json.gz"):
-        base = base[:-8]
-    out_dir = f"{base}_windows"
+    out_dir = output_base_path
+    if output_base_path.endswith(".json.gz"):
+        out_dir = os.path.dirname(output_base_path)
+    if not out_dir:
+        out_dir = "."
     os.makedirs(out_dir, exist_ok=True)
 
     windows = sorted(windowed_data.keys())
@@ -793,6 +800,31 @@ def assign_windows_to_partitions(
 
     partitioning_config = partitioning_config or {}
     policy = partitioning_config.get("policy", "synthetic_mixture")
+    policy_schedule = partitioning_config.get("policy_schedule")
+    scheduled_policies = None
+    if policy_schedule is not None:
+        if not isinstance(policy_schedule, list) or not policy_schedule:
+            raise ValueError("partitioning.policy_schedule must be a non-empty list")
+        scheduled_policies = []
+        for phase_idx, phase in enumerate(policy_schedule):
+            if not isinstance(phase, dict):
+                raise ValueError(f"partitioning.policy_schedule[{phase_idx}] must be an object")
+            phase_policy = phase.get("policy")
+            duration = phase.get("duration")
+            if not isinstance(phase_policy, str) or not phase_policy:
+                raise ValueError(
+                    f"partitioning.policy_schedule[{phase_idx}].policy must be a non-empty string"
+                )
+            if not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:
+                raise ValueError(
+                    f"partitioning.policy_schedule[{phase_idx}].duration must be a positive integer"
+                )
+            scheduled_policies.extend([phase_policy] * duration)
+        if len(scheduled_policies) != len(windows):
+            raise ValueError(
+                "partitioning.policy_schedule covers "
+                f"{len(scheduled_policies)} windows, but the scenario generated {len(windows)}"
+            )
     validate_partitioning = bool(partitioning_config.get("validate_count_preservation", True))
     mode_probs = tuple(partitioning_config.get("mode_probs", (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0)))
     normal_subset_frac_range = tuple(partitioning_config.get("normal_subset_frac_range", (0.5, 1.0)))
@@ -806,10 +838,12 @@ def assign_windows_to_partitions(
     print(f"Starting generation: windows={num_windows}, partitions={m}, seed={seed}")
     for idx, (dist_type, freq_dist, win_n) in enumerate(windows):
         window_id = idx
+        window_policy = scheduled_policies[idx] if scheduled_policies is not None else policy
         progress = f"{idx + 1}/{num_windows}"
         print(
             f"[window_id={window_id} progress={progress}] "
-            f"dist={dist_type}, keys={len(freq_dist)}, n={win_n}"
+            f"dist={dist_type}, keys={len(freq_dist)}, n={win_n}, "
+            f"partitioning={window_policy}"
         )
         if plot_distr:
             plot_frequency_distribution_with_hh(
@@ -823,7 +857,7 @@ def assign_windows_to_partitions(
         partitioned_window = assign_partitions(
             freq_dist,
             num_partitions=m,
-            policy=policy,
+            policy=window_policy,
             seed=seed,
             window_id=window_id,
             mode_probs=mode_probs,
@@ -863,6 +897,52 @@ def assign_windows_to_partitions(
             max_partition_mass_frac=partitioning_config.get("max_partition_mass_frac", None),
             local_detection_threshold_scale=partitioning_config.get("local_detection_threshold_scale", 1.0),
             hh_overflow_spread_power=partitioning_config.get("hh_overflow_spread_power", 1.0),
+            frontier_min_ratio=partitioning_config.get("frontier_min_ratio", 0.80),
+            frontier_max_ratio=partitioning_config.get("frontier_max_ratio", 1.20),
+            frontier_reporter_frac=partitioning_config.get("frontier_reporter_frac", 0.08),
+            frontier_reporter_min=partitioning_config.get("frontier_reporter_min", 4),
+            frontier_reporter_max=partitioning_config.get("frontier_reporter_max", 12),
+            frontier_reporter_weight_jitter=partitioning_config.get("frontier_reporter_weight_jitter", 0.20),
+            adv_hh_local_cap_scale=partitioning_config.get("adv_hh_local_cap_scale", 0.8),
+            adv_hh_overflow_cap_scale=partitioning_config.get("adv_hh_overflow_cap_scale", 2.5),
+            adv_nonhh_min_ratio=partitioning_config.get("adv_nonhh_min_ratio", 0.65),
+            adv_nonhh_max_ratio=partitioning_config.get("adv_nonhh_max_ratio", 0.995),
+            adv_nonhh_count_ratio=partitioning_config.get("adv_nonhh_count_ratio", 4.0),
+            adv_nonhh_min_reporters=partitioning_config.get("adv_nonhh_min_reporters", 4),
+            adv_nonhh_max_reporters=partitioning_config.get("adv_nonhh_max_reporters", 16),
+            adv_key_max_fraction=partitioning_config.get("adv_key_max_fraction", 0.25),
+            milp_target_max_keys=partitioning_config.get("milp_target_max_keys", 80),
+            milp_nonhh_min_ratio=partitioning_config.get("milp_nonhh_min_ratio", 0.65),
+            milp_nonhh_max_ratio=partitioning_config.get("milp_nonhh_max_ratio", 0.995),
+            milp_nonhh_count_ratio=partitioning_config.get("milp_nonhh_count_ratio", 2.0),
+            milp_key_max_fraction=partitioning_config.get("milp_key_max_fraction", 0.25),
+            milp_hidden_weight=partitioning_config.get("milp_hidden_weight", 1.0),
+            milp_mislead_weight=partitioning_config.get("milp_mislead_weight", 1.0),
+            milp_time_limit_sec=partitioning_config.get("milp_time_limit_sec", 120.0),
+            milp_mip_rel_gap=partitioning_config.get("milp_mip_rel_gap", 0.0),
+            milp_target_key_fraction=partitioning_config.get("milp_target_key_fraction", 0.0),
+            milp_target_min_keys=partitioning_config.get("milp_target_min_keys", 1),
+            milp_hh_target_fraction=partitioning_config.get("milp_hh_target_fraction", 0.5),
+            milp_intermediate_scale=partitioning_config.get("milp_intermediate_scale", 0.5),
+            milp_print_diagnostics=partitioning_config.get("milp_print_diagnostics", False),
+            locality_global_fraction=partitioning_config.get("locality_global_fraction", 0.15),
+            locality_regional_fraction=partitioning_config.get("locality_regional_fraction", 0.35),
+            locality_local_fraction=partitioning_config.get("locality_local_fraction", 0.35),
+            locality_regional_home_fraction=partitioning_config.get("locality_regional_home_fraction", 0.20),
+            locality_local_home_fraction=partitioning_config.get("locality_local_home_fraction", 0.04),
+            locality_global_strength=partitioning_config.get("locality_global_strength", 0.10),
+            locality_regional_strength=partitioning_config.get("locality_regional_strength", 0.75),
+            locality_local_strength=partitioning_config.get("locality_local_strength", 0.90),
+            locality_background_strength=partitioning_config.get("locality_background_strength", 0.00),
+            locality_uniform_floor_fraction=partitioning_config.get("locality_uniform_floor_fraction", 0.0),
+            locality_weight_jitter=partitioning_config.get("locality_weight_jitter", 0.05),
+            pa_hh_spread_fraction=partitioning_config.get("pa_hh_spread_fraction", 0.75),
+            pa_hh_local_cap_scale=partitioning_config.get("pa_hh_local_cap_scale", 0.85),
+            pa_nonhh_min_ratio=partitioning_config.get("pa_nonhh_min_ratio", 0.65),
+            pa_nonhh_max_ratio=partitioning_config.get("pa_nonhh_max_ratio", 0.995),
+            pa_nonhh_home_fraction=partitioning_config.get("pa_nonhh_home_fraction", 0.05),
+            pa_nonhh_home_mass_frac=partitioning_config.get("pa_nonhh_home_mass_frac", 0.90),
+            pa_background_policy=partitioning_config.get("pa_background_policy", "persistent_locality"),
         )
         if validate_partitioning:
             _assert_count_preservation(window_id, freq_dist, partitioned_window)
@@ -937,4 +1017,3 @@ def prepare_and_store_data(seed=42, total_items=10_000, num_keys = 1_000, n = 10
         if json_gz_path:
             save_compressed_json(stream, json_gz_path)
             print(f"Saved partitioned counts JSON: {json_gz_path}")
-

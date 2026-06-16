@@ -117,7 +117,7 @@
 %% article.
 % --- BEGIN inlined from sections_content/00_abstract.tex ---
 \begin{abstract}
-Modern distributed stream processing systems rely on partitioning to scale, but workload skew can severely degrade performance by overloading downstream workers. Identifying global heavy hitters is essential for mitigation, yet it remains a challenging coordinator-side inference problem when raw records cannot be centralized and local partition memory is strictly bounded. In this paper, we propose a unified framework for distributed heavy-hitter tracking that bridges deterministic inference and predictive memory provisioning. First, we introduce a routing-agnostic certification layer that converts bounded local Space-Saving telemetry into deterministic global frequency intervals. By explicitly decomposing coordinator error into reporter inflation and hidden non-reporter mass, we establish a strict discoverability floor that guarantees no global heavy hitter is missed. Second, we build a requirement-based predictive sizing controller on top of these certificates. Rather than forecasting abstract difficulty scores, our controller infers a retrospective required-capacity estimate expressed directly in units of memory. By modulating this requirement with the smoothed level and trend of heavy-hitter ambiguity, we generate a risk-adjusted effective signal that drives next-window provisioning. We also show how the same certification and planning logic extends to a hybrid exact-approximate regime that reserves exact state for stable dominant keys while tracking the residual tail approximately. Extensive evaluations demonstrate that our framework provides robust deterministic guarantees while optimizing the memory-quality tradeoff across highly volatile streams.
+Modern distributed stream processing systems rely on partitioning to scale, but workload skew can severely degrade performance by overloading downstream workers. Identifying global heavy hitters is essential for mitigation, yet it remains a challenging coordinator-side inference problem when raw records cannot be centralized and local partition memory is strictly bounded. In this paper, we propose a unified framework for distributed heavy-hitter tracking that bridges deterministic inference and adaptive memory provisioning. First, we introduce a routing-agnostic certification layer that converts bounded local Space-Saving telemetry into deterministic global frequency intervals. By explicitly decomposing coordinator error into reporter inflation and hidden non-reporter mass, we establish a strict discoverability floor that guarantees no global heavy hitter is missed. Second, we build a capacity controller on top of these certificates. An observed margin violation activates an origin-aware upward response, whereas memory is released only through measured downward probes because high-capacity telemetry cannot certify an unobserved smaller summary. A residual guard prevents a failed probe from being repeated aggressively, while a separate materiality--cost guard raises memory only when doing so resolves a worthwhile fraction of threshold-crossing ambiguity. We also show how the same certification and planning logic extends to a hybrid exact-approximate regime that reserves exact state for stable dominant keys while tracking the residual tail approximately. Extensive evaluations demonstrate that our framework provides robust deterministic guarantees while optimizing the memory-quality tradeoff across highly volatile streams.
 \end{abstract}
 % --- END inlined from sections_content/00_abstract.tex ---
 
@@ -160,19 +160,19 @@ This raises two closely related questions. First, given only compact local telem
 
 This paper addresses both questions through a unified framework built around local Space-Saving summaries. Our starting point is a deterministic coordinator-side certification layer: from local Space-Saving telemetry, the coordinator constructs a global candidate set, derives certified frequency intervals for reported keys, and partitions them into certified heavy hitters, certified non-heavy-hitters, and ambiguous keys. These guarantees are computed from the realized window only and require no stochastic routing assumptions. The key technical device is a signed decomposition of coordinator error into two components: \emph{reporter inflation}, caused by one-sided local overestimation, and \emph{hidden non-reporter mass}, caused by partitions that do not report a key. This decomposition yields explicit routing-agnostic envelopes and a simple discoverability floor under which no true heavy hitter can be missed at the candidate stage.
 
-We then build the adaptive layer on top of these deterministic certificates. Rather than forecasting an abstract difficulty statistic and then inverting that forecast into a sketch size, we introduce a \emph{requirement-based} view of provisioning. For a realized window, we ask a direct question: under the deterministic envelope model, what sketch capacity does the model prescribe for satisfying a target margin? This yields a window-level \emph{required capacity} signal, expressed in the same units as the memory actuator itself. The signal is a conservative retrospective estimate, not an exact counterfactual minimum, but it avoids forecasting an abstract surrogate that must later be mapped into memory through a separate response model. This viewpoint produces a cleaner planning layer, a more interpretable controller, and a sharper separation between deterministic within-window inference and probabilistic cross-window adaptation.
+We then build the adaptive layer on top of these deterministic certificates. For each realized window, the coordinator tests whether the deployed capacity met a prescribed deterministic margin over a chosen service fraction of HH-relevant candidates. A violation is converted directly into an upward capacity demand using the capacity at which the margin was observed. A successful window does not produce a smaller counterfactual target: ordinary summary telemetry cannot determine which keys and certificates would have survived at an unobserved lower capacity. The controller therefore separates evidence-backed upward sizing from experimental downward release.
 
-The result is a two-layer architecture. The first layer provides deterministic coordinator-side guarantees for a realized window. The second uses the output of the first to plan memory for the next window. This separation is important both conceptually and operationally. It ensures that correctness claims about the realized window do not depend on the success of forecasting, while still allowing the system to adapt its memory footprint over time. Ambiguity near the heavy-hitter boundary can be incorporated as a secondary guardrail, but it does not replace required capacity as the main planning variable.
+The result is a two-layer architecture. The first layer provides deterministic coordinator-side guarantees for a realized window. The second uses the output of the first to plan memory for the next window. This separation is important both conceptually and operationally. It ensures that correctness claims about the realized window do not depend on controller success, while still allowing the system to adapt its memory footprint over time. The service-margin test and upward demand provide the primary control evidence, while unresolved threshold-crossing certificates act as a conservative guard when distributed evidence is not sharp enough at the requested margin scale.
 
 Our contributions are as follows:
 \begin{itemize}[leftmargin=*]
     \item We develop a deterministic coordinator-side certification framework that converts local Space-Saving telemetry into routing-agnostic global frequency intervals, together with certified heavy hitters, certified non-heavy-hitters, and ambiguous keys.
     \item We establish a simple discoverability guarantee: above a natural per-partition size floor, every global heavy hitter is guaranteed to appear in the coordinator's candidate set, eliminating false negatives at the discovery stage.
-    \item We introduce a requirement-based formulation of adaptive sizing. From the deterministic margins observed in a realized window, we infer a conservative memory-valued estimate of the sketch capacity needed to satisfy a prescribed service target under the certification model.
-    \item We build a predictive next-window sizing policy on top of this required-capacity signal, and show how ambiguity-aware control and hybrid exact-approximate tracking fit naturally within the same architecture.
+    \item We introduce a one-sided formulation of adaptive sizing. Margin violations produce an origin-aware upward capacity demand, while successful observations certify only the deployed capacity.
+    \item We combine immediate upward response with residual-guarded downward probes, then extend the controller with ambiguity-aware and hybrid tracking.
 \end{itemize}
 
-The rest of the paper is organized as follows. Section~\ref{sec:problem} formalizes the system model and coordinator interface. Section~\ref{sec:ss-prelim} presents the local Space-Saving primitive and the telemetry contract. Section~\ref{sec:deterministic} develops deterministic coordinator-side certification for global heavy hitters. Section~\ref{sec:requirement} introduces the requirement-based view of memory sizing. Section~\ref{sec:predictive} presents the predictive next-window controller. Section~\ref{sec:extensions} extends the framework to hybrid exact-approximate tracking, and Section~\ref{sec:experiments} outlines the experimental evaluation.
+The rest of the paper is organized as follows. Section~\ref{sec:problem} formalizes the system model and coordinator interface. Section~\ref{sec:ss-prelim} presents the local Space-Saving primitive and the telemetry contract. Section~\ref{sec:deterministic} develops deterministic coordinator-side certification for global heavy hitters. Section~\ref{sec:requirement} converts realized margins into one-sided capacity pressure. Section~\ref{sec:predictive} presents the next-window controller. Section~\ref{sec:extensions} extends the framework to hybrid exact-approximate tracking, and Section~\ref{sec:experiments} outlines the experimental evaluation.
 
 \section{System Model and Coordinator Interface}
 \label{sec:problem}
@@ -210,15 +210,15 @@ The rest of the paper is organized as follows. Section~\ref{sec:problem} formali
 
 \node[box] (telemetry) {Local summary\\telemetry};
 \node[box, right=of telemetry] (certs) {Deterministic\\global certification};
-\node[box, right=of certs] (req) {Required-capacity\\inference};
-\node[box, right=of req] (predictive) {Predictive\\next-window sizing};
+\node[box, right=of certs] (req) {Service-margin\\pressure test};
+\node[box, right=of req] (predictive) {Adaptive\\next-window sizing};
 
 \draw[flow] (telemetry) -- (certs);
 \draw[flow] (certs) -- (req);
 \draw[flow] (req) -- (predictive);
 \end{tikzpicture}
-\caption{Conceptual pipeline of the proposed framework. The coordinator converts bounded local summary telemetry into deterministic global certificates for the realized window, then inverts those certificates into a required-capacity signal that drives predictive sizing for the next window.}
-\Description{A four-stage left-to-right pipeline: local summary telemetry, deterministic global certification, required-capacity inference, and predictive next-window sizing.}
+\caption{Conceptual pipeline of the proposed framework. The coordinator converts bounded local summary telemetry into deterministic global certificates, tests the observed service margin, and combines upward response with measured downward probing for the next window.}
+\Description{A four-stage left-to-right pipeline: local summary telemetry, deterministic global certification, service-margin testing, and adaptive next-window sizing.}
 \label{fig:pipeline}
 \end{figure*}
 
@@ -329,34 +329,36 @@ Table~\ref{tab:notation} summarizes the main notation used throughout the paper.
 \(T\) & HH-relevant target set \(K_+ \cup K_?\) used by the planning layer \\
 \(I(k),H(k),M(k)\) & Reporter-inflation term, hidden-mass term, and composite deterministic margin \\
 \midrule
-\multicolumn{2}{@{}l}{\textit{Planning and predictive control}} \\
+\multicolumn{2}{@{}l}{\textit{Planning and adaptive control}} \\
 \midrule
-\(r_M\) & Target deterministic margin budget for HH-relevant keys \\
-\(q_{\mathrm{req}}(k),q_{\mathrm{Req}}\) & Per-key required capacity and window-level required-capacity signal \\
-\(D_A,\bar D_A,G_A\) & Ambiguity ratio, smoothed ambiguity level, and signed ambiguity trend \\
-\(\lambda_A,\lambda_G\) & Controller gains for ambiguity level and ambiguity trend \\
-\(z_{\mathrm{eff}},q_{\mathrm{eff}}\) & Log effective signal and ambiguity-adjusted effective memory signal \\
-\(\hat z_{\mathrm{eff}},R_{\mathrm{eff}},b_{\mathrm{eff}}\) & One-step log forecast, forecast residual, and one-sided calibration bias \\
-\(\tilde z_{\mathrm{eff}},\tilde q_{\mathrm{eff}}\) & Calibrated log forecast and calibrated next-window effective signal \\
-\(q_{\mathrm{react,Req}},q_{\mathrm{react,eff}}\) & Reactive requirement-replay and effective-signal-replay baselines \\
+\(\varepsilon_M,r_M\) & Fractional and absolute deterministic margin budgets, with \(r_M=\varepsilon_M/n\) \\
+\(\alpha\) & Service fraction used to aggregate per-key deterministic margins \\
+\(M_\alpha\) & Window-level service margin \(Q_\alpha(\{M(k):k\in T\})\) \\
+\(q_\uparrow\) & Upward capacity demand activated only when \(M_\alpha>r_M\) \\
+\(q_{\mathrm{probe}}\) & Capacity used for a physical downward probe \\
+\(\bar q\) & Baseline target selected by upward response or downward probing \\
+\(L,g\) & Failed-probe lower boundary and temporary recovery guard \\
+\(s(k),A\) & Per-key separation demand and selected ambiguity proposal \\
+\(\ell_{\mathrm{Amb}},a_{\mathrm{Amb}}\) & Observed and geometrically persisted ambiguity margins in log-capacity space \\
+\(\beta\) & Geometric persistence factor for an unrefreshed ambiguity margin \\
 \(q\) & Deployed common local summary size in the core regime \\
 \midrule
 \multicolumn{2}{@{}l}{\textit{Hybrid exact--approximate tracking}} \\
 \midrule
-\(E,q_e,q_a,q_{\mathrm{hyb}}\) & Promoted exact head, exact-head size, residual approximate-summary size, and total hybrid local memory \\
+\(E,e,r,b\) & Promoted exact head, exact-head counters, residual-summary counters, and total hybrid local budget \\
 \(\mathcal W_{i,\mathrm{res}},\mathcal S_{i,\mathrm{res}}\) & Residual substream and residual Space-Saving summary at partition \(i\) \\
 \(N_{\mathrm{res}},N_{i,\mathrm{res}},\mathcal A_{\mathrm{res}}\) & Global residual mass, partition-local residual mass, and residual-active partitions \\
 \(P_E\) & Fraction of global mass captured exactly by the promoted head \(E\) \\
 \(R_{\mathrm{res}}(k),c_{i,\mathrm{res}}\) & Residual reporting set of key \(k\) and residual minimum-counter bound at partition \(i\) \\
 \(\underline p_{\mathrm{res}}(k),\overline p_{\mathrm{res}}(k)\) & Deterministic residual frequency bounds for keys outside the exact head \\
-\(q_{\mathrm{res},\min}\) & Residual discoverability floor in the hybrid regime \\
+\(r_{\min}\) & Residual discoverability floor in the hybrid regime \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
 
 
-The remainder of the paper develops this pipeline in stages. Section~\ref{sec:ss-prelim} introduces the local summary primitive and the telemetry it exposes. Section~\ref{sec:deterministic} shows how the coordinator converts that telemetry into deterministic global certificates. Section~\ref{sec:requirement} then turns those certificates into a window-level required-capacity signal, and Section~\ref{sec:predictive} uses that signal for predictive memory sizing. A hybrid exact--approximate regime is treated as an extension rather than as part of the core theorem path.
+The remainder of the paper develops this pipeline in stages. Section~\ref{sec:ss-prelim} introduces the local summary primitive and the telemetry it exposes. Section~\ref{sec:deterministic} shows how the coordinator converts that telemetry into deterministic global certificates. Section~\ref{sec:requirement} turns those certificates into a service-margin test and one-sided upward demand, and Section~\ref{sec:predictive} combines that evidence with downward probing. A hybrid exact--approximate regime is treated as an extension rather than as part of the core theorem path.
 
 \section{Local Space-Saving Summaries and Telemetry}
 \label{sec:ss-prelim}
@@ -729,14 +731,14 @@ This is the exact form of certification that the later planning layer will use: 
 
 Section~\ref{sec:problem} introduced the architectural separation between realized-window certification and next-window planning. The present section completes the first half of that architecture. From bounded local telemetry alone, the coordinator can now (i) guarantee discovery of all global heavy hitters above a simple local size floor, (ii) derive deterministic intervals for every reported candidate, and (iii) partition the candidate set into certified positives, certified negatives, and unresolved keys.
 
-These outputs are not only useful as end-of-window certificates. They also induce the right objects for adaptation. In particular, the next section will use the deterministic margins underlying \([\underline p^t(k), \overline p^t(k)]\) to infer the memory level prescribed by a conservative envelope-scaling model for a desired service target. This inversion step yields the required-capacity signal that drives the predictive controller.
+These outputs are not only useful as end-of-window certificates. They also induce the right objects for adaptation. In particular, the next section aggregates the deterministic margins underlying \([\underline p^t(k), \overline p^t(k)]\) into a window-level service test. A failed test activates an upward capacity response. A passed test establishes only that the deployed capacity was sufficient; it does not infer an unobserved lower capacity.
 
-\section{Required-Capacity Inference from Deterministic Certificates}
+\section{Capacity Pressure from Deterministic Certificates}
 \label{sec:requirement}
 
-Section~\ref{sec:deterministic} established the deterministic inference layer of the framework. For each realized window, the coordinator obtains a candidate set, per-candidate frequency intervals, and a certification partition into heavy hitters, non-heavy-hitters, and ambiguous keys. These objects are useful in their own right, but they also suggest a natural planning question: how much local memory would the certification model prescribe for the realized window to satisfy a desired quality target? This section formalizes that question and uses it to define the main planning variable of the paper, namely a \emph{required capacity} estimate for a realized window.
+Section~\ref{sec:deterministic} established the deterministic inference layer of the framework. For each realized window, the coordinator obtains a candidate set, per-candidate frequency intervals, and a certification partition into heavy hitters, non-heavy-hitters, and ambiguous keys. The planning layer must now decide whether the capacity \(q^t\) that produced this telemetry was sufficient for a desired margin target.
 
-The key design choice is to work directly in the space of memory requirements rather than in the space of abstract difficulty scores. In earlier formulations of the problem, one might attempt to summarize a realized window through some scalar notion of estimation or decision difficulty, then separately justify how that scalar should be mapped into a sketch size for the next window. The present paper instead adopts a more direct view: given the deterministic certification already available for window \(t\), infer a memory-valued capacity estimate that would satisfy a prescribed service target under the same envelope model. This produces a planning signal that is already expressed in the same units as the actuator itself.
+This distinction is important. Telemetry collected at capacity \(q^t\) can demonstrate that \(q^t\) was insufficient, and it can quantify the observed shortfall. It cannot, in general, reconstruct what a smaller summary would have reported. Changing capacity changes retained keys, reporting sets, minimum counters, and overestimation certificates. We therefore use current telemetry only for a one-sided upward response. Memory reduction is treated separately as an experimental probing problem in Section~\ref{sec:predictive}.
 
 \subsection{Heavy-Hitter-Relevant Target Set}
 \label{subsec:req-target}
@@ -782,274 +784,329 @@ This is the smallest symmetric radius that dominates both the lower-side and upp
 |\hat p^t(k)-p^t(k)| \le M^t(k).
 \]
 
-The quantity \(M^t(k)\) is not itself the planning variable of the paper. Its role is more local: it tells us how far candidate \(k\)'s realized telemetry is from supporting the desired quality target. The next step is to convert these realized margins into an equivalent memory requirement.
+The quantity \(M^t(k)\) tells us whether candidate \(k\)'s realized telemetry supports the desired quality target. The next step aggregates this evidence across the heavy-hitter-relevant frontier.
 
-\subsection{Per-Key Required Capacity}
+\subsection{Window-Level Service Margin}
 \label{subsec:req-perkey}
 
-Fix a deterministic margin budget \(r_M > 0\). Intuitively, \(r_M\) is the maximum per-key deterministic margin one is willing to tolerate on the heavy-hitter-relevant set. If a realized window has \(M^t(k) \le r_M\) for a candidate \(k\), then the deployed summary size \(q^t\) already met the target for that key under the observed telemetry. If \(M^t(k) > r_M\), then one may ask what larger size the envelope model would prescribe to bring the deterministic margin down to \(r_M\).
+Fix a threshold-normalized deterministic margin budget \(\varepsilon_M > 0\). Intuitively, \(\varepsilon_M\) specifies how much deterministic certificate slack is acceptable as a fraction of the heavy-hitter threshold \(1/n\). It induces the absolute per-key margin budget
+\[
+r_M := \frac{\varepsilon_M}{n}.
+\]
+For example, if \(n=200\), the global heavy-hitter threshold is \(1/n=0.005\). Choosing \(\varepsilon_M=0.2\) sets \(r_M=0.001\), so the allowed deterministic margin is one fifth of the threshold.
 
-To answer that question, we invert the same envelope structure used in the deterministic certification layer. Both components of the margin, reporter inflation and hidden non-reporter mass, are controlled by Space-Saving terms whose worst-case scale is proportional to \(1/q\). We therefore ask what capacity would be prescribed if the observed composite margin \(M^t(k)\) were reduced according to this envelope scale. Under this model, increasing the local summary size from \(q^t\) to \(q\ge q^t\) contracts the margin by the factor \(q^t/q\), and the capacity required to meet the budget \(r_M\) is
+Fix a service fraction \(\alpha\in(0,1]\). The window-level service margin is
+\begin{equation}
+\label{eq:qreq-window}
+M_\alpha^t
+:=
+\begin{cases}
+0, & T^t=\emptyset,\\[0.5ex]
+Q_\alpha\!\left(\{M^t(k):k\in T^t\}\right),
+& T^t\neq\emptyset.
+\end{cases}
+\end{equation}
+Thus \(\alpha\) controls how broadly the margin target is enforced across the heavy-hitter frontier. For example, \(\alpha=0.95\) tests the margin attained by the lower \(95\%\) of HH-relevant candidates rather than allowing the hardest outlier to determine every decision.
+
+The observation has two possible meanings:
+\begin{equation}
+\label{eq:capacity-service-test}
+\begin{aligned}
+M_\alpha^t>r_M
+&\quad\Longrightarrow\quad q^t\text{ is insufficient},\\
+M_\alpha^t\le r_M
+&\quad\Longrightarrow\quad q^t\text{ is sufficient}.
+\end{aligned}
+\end{equation}
+The second statement applies only to the deployed capacity. It does not imply that any \(q<q^t\), including the floor \(n\), would have passed the same test.
+
+\subsection{Upward Capacity Demand}
+\label{subsec:req-window}
+
+When \(M_\alpha^t>r_M\), current telemetry has demonstrated insufficiency. Reporter inflation and hidden non-reporter mass are controlled by Space-Saving terms whose worst-case scale is proportional to \(1/q\). For upward response only, we therefore use the local model
+\[
+M_\alpha(q)\approx\frac{C_\alpha^t}{q},
+\qquad
+\widehat C_\alpha^t:=q^tM_\alpha^t.
+\]
+Inverting this model gives the upward capacity demand
 \begin{equation}
 \label{eq:qreq-perkey}
-q_{\mathrm{req}}^t(k)
+q_\uparrow^t
+:=
+\begin{cases}
+\max\!\left\{
+q^t+1,\;
+\left\lceil q^t\frac{M_\alpha^t}{r_M}\right\rceil
+\right\},
+& M_\alpha^t>r_M,\\[1ex]
+\bot, & M_\alpha^t\le r_M.
+\end{cases}
+\end{equation}
+The origin capacity \(q^t\) is essential: it identifies the operating point at which \(M_\alpha^t\) was measured. The estimate \(q_\uparrow^t\) is not an exact counterfactual optimum, because increasing capacity can still change the candidate and reporting sets. It is, however, directionally supported by an observed violation. No analogous downward inversion is made after a successful window.
+
+\begin{remark}[One-sided pressure signal]
+\label{rem:req-surrogate}
+Equation~\eqref{eq:qreq-perkey} is deliberately asymmetric. A violation produces a memory-valued upward demand. A successful observation produces only the statement that \(q^t\) was sufficient. Assigning a smaller capacity by applying the same inverse model downward would treat unavailable counterfactual telemetry as if it had been observed.
+\end{remark}
+
+\subsection{Interpretation of the Pressure Signal}
+\label{subsec:req-interpretation}
+
+The planning signal now has a precise interpretation. If the service margin violates its budget, \(q_\uparrow^t\) estimates the larger capacity suggested by the inverse envelope model at the observed origin \(q^t\). If the budget is met, the coordinator learns no smaller target. This prevents a well-provisioned window from manufacturing an unsupported recommendation to return to \(q=n\).
+
+The remaining question is therefore not how to forecast a bidirectional required-capacity sequence. It is how to combine immediate upward response with cautious experimental release. Section~\ref{sec:predictive} addresses this by physically probing lower capacities only after repeated sufficiency, using each probe's own telemetry to accept the reduction or compute a fresh upward response.
+
+
+
+\section{Adaptive Next-Window Sizing}
+\label{sec:predictive}
+
+Section~\ref{sec:requirement} defined a window-level service margin \(M_\alpha^t\) and a one-sided upward demand \(q_\uparrow^t\). This section completes the controller. Demonstrated insufficiency activates the upward response immediately. Demonstrated sufficiency holds the current capacity and may eventually authorize a physical downward probe. Threshold-crossing ambiguity is handled separately through an observable capacity frontier.
+
+\paragraph{Capacity notation.}
+The controller has a simple three-stage flow. The symbol \(q^t\) is the
+capacity actually deployed in window \(t\). Temporal control produces a
+baseline proposal \(\bar q^{t+1}\), using either the upward proposal
+\(q_\uparrow^t\), the downward proposal \(q_{\mathrm{probe}}^{t+1}\), or the
+current capacity. Ambiguity may then raise the baseline, producing the final
+deployed capacity \(q^{t+1}\). All other symbols in this section describe
+evidence or temporary guard state rather than additional deployed capacities.
+
+\subsection{Capacity-Relative Evidence}
+\label{subsec:pred-forecast}
+
+The certificates used to construct \(M_\alpha^t\) were produced at the deployed capacity \(q^t\). The observation therefore follows the feedback path
+\[
+q^t
+\longrightarrow
+\text{certificate geometry in window }t
+\longrightarrow
+M_\alpha^t.
+\]
+Window \(t\) is \emph{insufficient} when
+\begin{equation}
+\label{eq:capacity-insufficient}
+M_\alpha^t>r_M,
+\end{equation}
+and \emph{sufficient} otherwise. In the insufficient case,
+Equation~\eqref{eq:qreq-perkey} supplies \(q_\uparrow^t\) as the next baseline
+target. In the sufficient case, \(q^t\) becomes an observed sufficient point,
+but no lower capacity is inferred. Ambiguity is deliberately excluded from
+this service test, so extra memory deployed by the ambiguity guard cannot be
+misinterpreted as evidence about baseline pressure.
+
+\subsection{Margin-Guided Downward Probing and Residual Safety}
+\label{subsec:pred-calibration}
+
+Because ordinary summary telemetry cannot certify an unobserved smaller capacity, memory release requires a physical probe. A sufficient observation nevertheless indicates how much of the configured margin budget was consumed at the current operating point. Define the realized pressure ratio
+\begin{equation}
+\label{eq:probe-pressure}
+\rho^t:=\frac{M_\alpha^t}{r_M}.
+\end{equation}
+Values above one trigger the upward response of Equation~\eqref{eq:qreq-perkey}. When \(0\leq\rho^t\leq1\), the deployed capacity is sufficient, but \(\rho^t\) is still capacity-relative and cannot certify a smaller summary. We therefore use it only to control the depth of an explicit probe.
+
+After two consecutive sufficient observations, the controller uses
+\(\max\{n,\lceil q^t\rho^t\rceil\}\) as a provisional pressure-scaled boundary.
+This boundary is not asserted to be sufficient. The controller moves only
+halfway toward it in linear capacity space and limits any single release to
+approximately \(n/2\):
+\begin{equation}
+\label{eq:comfort-probe}
+q_{\mathrm{probe}}^{t+1}
 :=
 \max\!\left\{
 n,\;
-\left\lceil q^t \frac{M^t(k)}{r_M} \right\rceil
+q^t-\left\lceil\frac{n}{2}\right\rceil,\;
+\left\lceil
+\frac{q^t+\max\{n,\lceil q^t\rho^t\rceil\}}{2}
+\right\rceil
 \right\}.
 \end{equation}
+Thus pressure affects how deeply the controller explores, not whether the unobserved lower capacity is declared safe. Even \(\rho^t=0\) authorizes only the bounded \(n/2\) release because a zero observed margin may be censored by the deployed capacity.
 
-This inversion is deliberately applied to the deterministic envelope, not to an unobserved counterfactual execution of Space-Saving. Changing \(q\) can alter the retained keys, the reporting set \(R^t(k)\), and the realized overestimation certificates, so the telemetry collected at capacity \(q^t\) does not determine the exact margin that would have arisen at another capacity. The estimate \(q_{\mathrm{req}}^t(k)\) should instead be read as the capacity prescribed by the certification model for key \(k\), using the realized margin as the local evidence. In easy or highly skewed windows this may overstate the minimal memory actually needed, but the resulting bias is toward conservative provisioning, which is the appropriate direction for a planning signal that will be forecast into the next window.
-
-\subsection{Window-Level Required Capacity}
-\label{subsec:req-window}
-
-A single window typically contains several heavy-hitter-relevant candidates, not all of which need to dominate the planning decision equally. In practice, one often wants the next-window size to be large enough to deliver the target margin for most of the important candidates, without insisting on the hardest outlier in every window. We therefore aggregate the per-key requirements through an empirical quantile.
-
-Fix a service fraction \(\alpha \in (0,1]\). Define the window-level required capacity by
+If the probe is sufficient, the lower capacity is retained. If it is insufficient, the controller does not automatically rebound to a historical upper capacity. It uses the margin measured at the probe's origin capacity to compute a fresh upward response:
 \begin{equation}
-\label{eq:qreq-window}
-q_{\mathrm{Req}}^t
+\label{eq:probe-insufficient}
+L^t
+:=
+\max\{L^{t-1},q_{\mathrm{probe}}^t+1\},
+\qquad
+\bar q^{t+1}
+:=
+\max\{L^t,q_\uparrow^t\}.
+\end{equation}
+This response distinguishes an overly aggressive probe from a genuine upward regime change without assuming that an earlier sufficient capacity remains the correct target.
+
+Collecting the cases, the baseline actuation target is
+\begin{equation}
+\label{eq:baseline-actuation}
+\bar q^{t+1}
 :=
 \begin{cases}
-n, & T^t = \emptyset,\\[1ex]
-Q_\alpha\!\left(\{ q_{\mathrm{req}}^t(k) : k \in T^t \}\right), & T^t \neq \emptyset,
+\max\{L^t,q_\uparrow^t\},
+& M_\alpha^t>r_M,\\[0.5ex]
+q_{\mathrm{probe}}^{t+1},
+& M_\alpha^t\le r_M
+\text{ and a probe is authorized},\\[0.5ex]
+q^t,
+& \text{otherwise}.
 \end{cases}
 \end{equation}
-where \(Q_\alpha\) denotes the empirical \(\alpha\)-quantile.
+Thus the controller never lowers capacity merely because the current margin is small. Every reduction is an explicit probe.
 
-This is the central planning variable of the paper. It is the empirical \(\alpha\)-quantile of the per-key capacity estimates prescribed by the inverse-scaling surrogate, and therefore represents the common sketch size that the certification model assigns to the chosen service fraction of heavy-hitter-relevant candidates. It is already a quantity in units of local memory, rather than an abstract difficulty score that must later be mapped into memory through an additional response model.
+After a failed probe, the residual guard retains the recovered demand
+\begin{equation}
+\label{eq:guarded-probe-demand}
+g^t
+:=
+\max\{L^t,q_\uparrow^{t_{\mathrm{fail}}}\}
+,
+\end{equation}
+and is retained until the recovery capacity has produced two sufficient observations. During recovery the controller holds capacity at or above \(g^t\), rather than immediately repeating a probe below the demand exposed by the failure. Once recovery is confirmed, the ordinary two-observation condition must be met again before another downward probe is issued.
 
-The extreme cases are instructive. If \(\alpha = 1\), the required capacity is driven by the hardest candidate in the target set. If \(\alpha\) is smaller, the required capacity is allowed to ignore a tail of unusually difficult candidates in a window. The parameter \(\alpha\) therefore controls how broadly the service target is enforced across the heavy-hitter frontier. For example, \(\alpha=0.95\) means that the retrospective requirement is sized for the lower \(95\%\) of the per-key requirement estimates and may miss the prescribed margin target for the hardest \(5\%\) tail. This is an intentional service-fraction tradeoff, not a deterministic guarantee for every HH-relevant key. In practice, values such as \(\alpha=0.9\) or \(\alpha=0.95\) are natural operating points: they make the controller provision for most HH-relevant candidates while avoiding domination by a small number of exceptionally difficult outliers.
+This guarded margin-comfort policy is the canonical temporal controller. It reacts immediately to demonstrated insufficiency, never treats successful high-capacity telemetry as a certified counterfactual lower target, and uses observed headroom only to moderate the depth of measured probes. Its state and per-window control cost are \(O(1)\); the only additional cost of exploration is the occasional window executed at the probed capacity.
 
-\begin{remark}[Requirement signal]
-\label{rem:req-surrogate}
-The required-capacity quantities \(q_{\mathrm{req}}^t(k)\) and \(q_{\mathrm{Req}}^t\) are model-based prescriptions, not optimality claims about the realized window. Their role is to translate deterministic certificate slack into memory units, yielding a stable and interpretable signal for the predictive layer. The empirical question, evaluated in Section~\ref{sec:experiments}, is whether this safety-biased signal improves the memory--quality tradeoff under realistic temporal variation.
-\end{remark}
-
-\subsection{Interpretation of the Requirement Signal}
-\label{subsec:req-interpretation}
-
-The variable \(q_{\mathrm{Req}}^t\) should be understood as a \emph{retrospective requirement estimate} for the realized window, not yet as a prediction for the next one. This distinction is essential. The purpose of the present section is to answer the question: given the telemetry produced by window \(t\), how much memory would the certification model prescribe for that same window under the desired service target? Only in the next section will this realized requirement estimate be turned into a forecast for window \(t+1\).
-
-This requirement-based view has several advantages over a more indirect difficulty-metric formulation. First, it yields a planning signal with an immediate operational meaning: larger values of \(q_{\mathrm{Req}}^t\) correspond directly to larger prescribed local summaries. Second, it keeps the deterministic layer and the predictive layer conceptually separate. The realized requirement estimate is derived entirely from deterministic certificates and depends on no temporal assumptions. Third, it allows later predictive policies to remain simple: the forecasting layer needs only to model the evolution of \(q_{\mathrm{Req}}^t\) over time, rather than jointly modeling an auxiliary difficulty score and its conversion into memory.
-
-The requirement signal also clarifies the role of ambiguity. Near-threshold ambiguity does matter, but it is already reflected in \(q_{\mathrm{Req}}^t\) through the target set \(T^t = K_+^t \cup K_?^t\) and the corresponding realized margins. Later ambiguity-based terms will therefore act only as secondary guardrails or trend signals, not as the primary quantity driving the controller.
-
-At this point, the first half of the paper's architecture is complete. From local summary telemetry, the coordinator derives deterministic global certificates for the realized window. From those certificates, it now infers a required-capacity signal \(q_{\mathrm{Req}}^t\) that summarizes how much memory the certification model prescribes under the desired service target.
-
-The remaining question is how to use this signal to size the next window. Section~\ref{sec:predictive} addresses that question by treating the sequence \(\{q_{\mathrm{Req}}^t\}\) as the primary object to be forecast, then calibrating that forecast conservatively before turning it into a next-window memory decision.
-
-
-
-\section{Predictive Next-Window Sizing}
-\label{sec:predictive}
-
-Section~\ref{sec:requirement} defined the primary planning signal of the framework: the realized required-capacity estimate \(q_{\mathrm{Req}}^t\). This section turns that retrospective estimate into a predictive controller for the next window. The central design choice is to preserve required capacity as the reference signal for margin-driven memory need, while allowing ambiguity to adjust the actuation target continuously rather than only through a thresholded override. In this way, the controller responds not only to the memory level prescribed by the certification model, but also to the degree and direction of instability at the heavy-hitter frontier.
-
-The predictive layer therefore operates on an \emph{ambiguity-adjusted effective memory signal}. The construction has three parts. First, it defines a realized ambiguity signal from the certification partition. Second, it combines realized required capacity, smoothed ambiguity level, and signed ambiguity trend into a soft actuation target. Third, it forecasts and calibrates that signal before applying it as the next-window summary size. As before, the deterministic correctness of the realized-window certification layer remains unaffected by the success or failure of the predictor; forecasting influences only the sharpness of future certificates and the memory--risk tradeoff chosen for future windows.
-
-\subsection{Ambiguity-Adjusted Effective Signal}
+\subsection{Materiality--Cost Ambiguity Guard}
+\label{subsec:ambiguity}
 \label{subsec:pred-effective}
 
-We begin by recalling that ambiguity is already present in the realized-window certification layer through the unresolved set \(K_?^t\). From Section~\ref{sec:requirement}, the heavy-hitter-relevant target set is
-\[
-T^t = K_+^t \cup K_?^t.
-\]
-We measure the unresolved fraction of that target mass by the ambiguity ratio
+The service-margin test controls certificate slack over the HH-relevant target set, but it does not isolate the special case in which an unresolved certificate crosses the heavy-hitter threshold. Such ambiguity is not solely an artifact of approximate counters. When a partition does not report key \(k\), the coordinator knows only that its hidden contribution is bounded, not that it is zero. Threshold-crossing intervals may therefore remain even if every reported count is exact.
+
+Not every unresolved key warrants additional memory. An estimate arbitrarily close to \(1/n\) can require a very large capacity for strict classification while representing a negligible threshold distinction. The controller therefore balances two observable quantities: the material distinction resolved by a candidate capacity and the proportional memory increase required to obtain it.
+
+For \(k\in K_?^t\), define the obstructing one-sided uncertainty and the point estimate's threshold distance by
 \begin{equation}
-\label{eq:ambiguity}
-D_A^t
+\label{eq:ambiguity-sides}
+(U_A^t(k),\Delta_A^t(k))
 :=
 \begin{cases}
-0, & T^t = \emptyset,\\[1ex]
-\dfrac{\sum_{k \in K_?^t} \hat p^t(k)}
-{\sum_{k \in T^t} \hat p^t(k)}, & T^t \neq \emptyset.
+\left(\hat p^t(k)-\underline p^t(k),\;
+      \hat p^t(k)-1/n\right),
+& \hat p^t(k)\ge 1/n,\\[1ex]
+\left(\overline p^t(k)-\hat p^t(k),\;
+      1/n-\hat p^t(k)\right),
+& \hat p^t(k)<1/n.
 \end{cases}
 \end{equation}
-Thus \(D_A^t\) is the fraction of heavy-hitter-relevant estimated mass whose status remains unresolved in the realized window.
-
-Because ambiguity may fluctuate from one window to the next, we smooth it across time. Let
+Under the same inverse-capacity approximation used for upward response, the smallest integer capacity above the observed operating point that strictly separates the estimated side of the interval is
 \begin{equation}
-\label{eq:smoothed-ambiguity}
-\bar D_A^t
-=
-(1-\rho_A) D_A^t + \rho_A \bar D_A^{t-1},
-\qquad
-0 \le \rho_A < 1.
-\end{equation}
-The quantity \(\bar D_A^t\) captures the persistent level of certification ambiguity rather than only its instantaneous value.
-
-To capture the direction in which the frontier is moving, we also define a signed short-horizon ambiguity trend. Fix a horizon \(h \ge 2\), let
-\[
-\bar \ell := \frac{h-1}{2},
-\]
-and define the local least-squares slope
-\begin{equation}
-\label{eq:ambiguity-trend}
-G_A^t
-:=
-\frac{\sum_{\ell=0}^{h-1} (\ell-\bar \ell)\, \bar D_A^{t-h+1+\ell}}
-{\sum_{\ell=0}^{h-1} (\ell-\bar \ell)^2}.
-\end{equation}
-Positive values of \(G_A^t\) indicate that ambiguity has been worsening over the recent horizon, while negative values indicate that the frontier has been stabilizing.
-
-We now combine required capacity, ambiguity level, and ambiguity trend into a single effective signal. This signal is a risk-adjusted actuation target, not a new deterministic memory requirement. Let \(\lambda_A,\lambda_G \ge 0\) be controller gains and define
-\begin{equation}
-\label{eq:effective-logreq}
-z_{\mathrm{eff}}^t
-:=
-\log q_{\mathrm{Req}}^t
-+
-\lambda_A \bar D_A^t
-+
-\lambda_G G_A^t.
-\end{equation}
-Equivalently, in memory units,
-\begin{equation}
-\label{eq:effective-q}
-q_{\mathrm{eff}}^t
-:=
-\exp\!\bigl(z_{\mathrm{eff}}^t\bigr)
-=
-q_{\mathrm{Req}}^t
-\exp\!\bigl(\lambda_A \bar D_A^t + \lambda_G G_A^t\bigr).
-\end{equation}
-This construction has a direct interpretation. The signal \(q_{\mathrm{Req}}^t\) remains the primary measure of margin-driven memory need. The term \(\lambda_A \bar D_A^t\) inflates the actuation target when a substantial portion of the HH-relevant mass remains unresolved. The term \(\lambda_G G_A^t\) then adjusts the target according to whether ambiguity is currently worsening or receding. In particular, a negative trend is allowed to relax the effective signal below the retrospective requirement rather than being clipped away. This relaxation is intentional: when the frontier appears to be stabilizing, the controller may trade a higher risk of missing the retrospective margin requirement for lower memory.
-
-The requirement-only controller of Sections~\ref{sec:requirement}--\ref{sec:predictive} is recovered as the special case \(\lambda_A = \lambda_G = 0\). In this sense, the ambiguity-aware controller below is a strict generalization rather than a different design.
-
-\subsection{Forecasting and Calibration}
-\label{subsec:pred-forecast}
-
-Because the effective signal is positive and may vary multiplicatively across windows, we forecast it in log-space. The default one-step predictor is persistence,
-\begin{equation}
-\label{eq:persistence}
-\hat z_{\mathrm{eff},t+1\mid t} := z_{\mathrm{eff}}^t,
-\end{equation}
-which treats the most recent realized effective signal as the baseline forecast for the next window. When a smoother predictor is preferred, persistence may be replaced by an exponentially weighted moving average,
-\begin{equation}
-\label{eq:ewma}
-\hat z_{\mathrm{eff},t+1\mid t}
-=
-(1-\rho) z_{\mathrm{eff}}^t + \rho \hat z_{\mathrm{eff},t\mid t-1},
-\qquad
-0 \le \rho < 1.
-\end{equation}
-The exposition below treats \(\hat z_{\mathrm{eff},t+1\mid t}\) as the generic one-step forecast.
-
-A raw forecast is not yet sufficient for control, since systematic underprediction would translate directly into underprovisioned windows. We therefore calibrate the predictor conservatively using recent residuals of the effective signal. Define the forecast residual at window \(t\) by
-\begin{equation}
-\label{eq:residual}
-R_{\mathrm{eff}}^t
-:=
-z_{\mathrm{eff}}^t - \hat z_{\mathrm{eff},t\mid t-1}.
-\end{equation}
-A positive residual indicates that the realized effective signal exceeded the forecast, while a negative residual indicates that the forecast was conservative.
-
-Fix a calibration horizon \(L \ge 1\) and a calibration level \(\delta \in (0,1)\). Using the most recent \(L\) residuals, define the one-sided upper empirical quantile
-\begin{equation}
-\label{eq:bias}
-b_{\mathrm{eff}}^t
+\label{eq:qamb-perkey}
+s^t(k)
 :=
 \max\!\left\{
-0,\;
-Q_{1-\delta}\!\left(
-\{ R_{\mathrm{eff}}^{t-L+1}, \dots, R_{\mathrm{eff}}^t \}
-\right)
+n,\;
+\left\lfloor
+q^t\frac{U_A^t(k)}{\Delta_A^t(k)}
+\right\rfloor+1
 \right\},
+\qquad \Delta_A^t(k)>0.
 \end{equation}
-where \(Q_{1-\delta}\) denotes the empirical \((1-\delta)\)-quantile. Intuitively, \(b_{\mathrm{eff}}^t\) measures a recent upper envelope of underprediction for the effective signal. The maximum with zero makes the calibration one-sided: recent underprediction can increase the next forecast, but recent overprediction does not reduce it. Downward adjustment is handled separately by the signed ambiguity trend in the effective signal.
-
-The calibrated next-window forecast is therefore
+An exact estimated tie has \(\Delta_A^t(k)=0\) and is not assigned a finite separation demand. Instead, every finite demand receives the materiality weight
 \begin{equation}
-\label{eq:calibrated-log}
-\tilde z_{\mathrm{eff},t+1}
-:=
-\hat z_{\mathrm{eff},t+1\mid t} + b_{\mathrm{eff}}^t,
+\label{eq:ambiguity-materiality}
+w_A^t(k):=n\,\Delta_A^t(k).
 \end{equation}
-which induces the calibrated next-window effective signal
-\begin{equation}
-\label{eq:calibrated-q}
-\tilde q_{\mathrm{eff}}^{\,t+1}
-:=
-\left\lceil
-\exp\!\bigl(\tilde z_{\mathrm{eff},t+1}\bigr)
-\right\rceil.
-\end{equation}
-This calibration layer remains lightweight: it does not impose a detailed stochastic model on the workload, but simply biases the next forecast upward whenever recent residuals indicate that the raw predictor has been too optimistic.
+The weight measures distance from the decision threshold in threshold units. Consequently, an arbitrarily fine near-tie carries vanishing influence rather than an unbounded memory demand.
 
-\subsection{Predictive Actuation and Reactive Baselines}
+Let \(\bar q^{t+1}\) denote the baseline target selected by the upward-response and probing controller. Let \(\mathcal K_A^t:=\{k\in K_?^t:s^t(k)>\bar q^{t+1}\}\) contain the unresolved keys whose finite separation demands are not already covered by that target, and let \(\mathcal C_A^t:=\{s^t(k):k\in\mathcal K_A^t\}\). For a candidate capacity \(x\in\mathcal C_A^t\), define the fraction of remaining material ambiguity resolved by
+\begin{equation}
+\label{eq:ambiguity-gain}
+G_A^t(x)
+:=
+\frac{\sum_{k\in\mathcal K_A^t}
+w_A^t(k)\,
+\mathbf 1[s^t(k)\le x]}
+{\sum_{k\in\mathcal K_A^t}w_A^t(k)}
+\end{equation}
+and the proportional incremental cost by
+\begin{equation}
+\label{eq:ambiguity-cost}
+C_A^t(x)
+:=
+\frac{x-\bar q^{t+1}}{\bar q^{t+1}}.
+\end{equation}
+The observable frontier utility is \(V_A^t(x):=G_A^t(x)-C_A^t(x)\). The selected ambiguity proposal is
+\begin{equation}
+\label{eq:qamb-window}
+A^{t+1}
+:=
+\begin{cases}
+\arg\max_{x\in\mathcal C_A^t}V_A^t(x),
+& \mathcal C_A^t\neq\emptyset
+\text{ and }\max_{x\in\mathcal C_A^t}V_A^t(x)>0,\\[1ex]
+\bar q^{t+1}, & \text{otherwise}.
+\end{cases}
+\end{equation}
+Ties are resolved in favor of the smaller capacity. This rule introduces neither an ambiguity-specific gain nor an external capacity cap. Since \(G_A^t(x)\le 1\), positive utility implies \(C_A^t(x)<1\), hence every selected ambiguity proposal satisfies \(A^{t+1}<2\bar q^{t+1}\). The bound follows directly from the frontier objective.
+
+The observed ambiguity lift is represented in log-capacity space:
+\begin{equation}
+\label{eq:ambiguity-observed-margin}
+\ell_{\mathrm{Amb}}^t
+:=
+\left[
+\log\frac{A^{t+1}}{\bar q^{t+1}}
+\right]_+.
+\end{equation}
+Because ambiguity may persist across neighboring windows, the controller retains this signal independently:
+\begin{equation}
+\label{eq:ambiguity-persisted-margin}
+a_{\mathrm{Amb}}^t
+:=
+\max\!\left\{
+\ell_{\mathrm{Amb}}^t,\;
+\beta a_{\mathrm{Amb}}^{t-1}
+\right\},
+\qquad a_{\mathrm{Amb}}^{-1}:=0.
+\end{equation}
+Here \(\beta\) has one role only: it is the fraction of an unrefreshed ambiguity margin retained for one additional window. The default implementation uses \(\beta=1/2\). Crucially, \(a_{\mathrm{Amb}}^t\) remains independent of the baseline controller. Ambiguity cannot alter the failed-probe boundary \(L^t\), the recovery guard \(g^t\), or any other temporal-control state, and baseline updates cannot manufacture ambiguity.
+
+\subsection{Final Actuation}
 \label{subsec:pred-actuation}
 
-Because \(\tilde q_{\mathrm{eff}}^{\,t+1}\) is already expressed in units of local summary size, the next-window actuation rule is immediate:
+The final actuation combines the baseline target with the independently persisted ambiguity lift:
 \begin{equation}
 \label{eq:actuation}
 q^{t+1}
 :=
-\max\!\left\{
-n,\;
-\tilde q_{\mathrm{eff}}^{\,t+1}
-\right\}.
+\left\lceil
+\bar q^{t+1}\exp(a_{\mathrm{Amb}}^t)
+\right\rceil.
 \end{equation}
-The floor \(n\) preserves the discoverability guarantee of Proposition~\ref{prop:discoverability}. Thus every actuation decision remains compatible with the no-false-negative discovery regime for global heavy hitters.
+The baseline controller always enforces \(\bar q^{t+1}\ge n\), and
+\(a_{\mathrm{Amb}}^t\ge0\). Equation~\eqref{eq:actuation} therefore preserves
+the discoverability floor of Proposition~\ref{prop:discoverability} and can
+never lower the baseline. Recent threshold-crossing ambiguity can raise the
+next-window target, but only through its own decayed log-capacity margin. It
+never alters the upward-response or probing state.
 
-Equation~\eqref{eq:actuation} is the canonical predictive control law of the framework. It preserves the conceptual simplicity of the overall architecture while assigning ambiguity a genuinely interactive role. Required capacity remains the reference memory signal, but ambiguity and ambiguity trend modify that signal before forecasting rather than appearing only as an external thresholded bump.
-
-
-The same construction also suggests two natural reactive replay baselines. The first is \emph{requirement replay},
-\begin{equation}
-\label{eq:reactive-req}
-q_{\mathrm{react,Req}}^{t+1}
-:=
-\max\!\left\{
-n,\;
-\left\lceil q_{\mathrm{Req}}^t \right\rceil
-\right\}.
-\end{equation}
-This baseline applies no forecast and simply reuses the most recently realized retrospective requirement estimate. It measures the value of forecasting the requirement signal itself.
-
-The second is \emph{effective-signal replay},
-\begin{equation}
-\label{eq:reactive-eff}
-q_{\mathrm{react,eff}}^{t+1}
-:=
-\max\!\left\{
-n,\;
-\left\lceil q_{\mathrm{eff}}^t \right\rceil
-\right\}.
-\end{equation}
-This baseline also applies no forecast, but reuses the most recently realized ambiguity-adjusted effective signal. It is useful both conceptually and experimentally, since it isolates the value of prediction from the value of the effective-signal construction itself. We refer to these policies as reactive requirement replay and reactive effective-signal replay, respectively.
+Equation~\eqref{eq:actuation} is the canonical control law of the framework. The temporal controller supplies \(\bar q^{t+1}\); unresolved threshold-crossing certificates can only raise that value through their independently persisted ambiguity margin.
 
 \subsection{Interpretation of the Control Objective}
 \label{subsec:pred-interpretation}
 
-The predictive controller should be interpreted as a soft memory--risk controller. Its objective is not to guarantee that every future window will satisfy the deterministic margin target \(r_M\) for every HH-relevant candidate. Rather, it aims to choose a next-window memory level that balances the retrospective margin requirement against evidence about the stability of the heavy-hitter frontier.
+The adaptive controller should be interpreted as a soft memory--risk controller. Its objective is not to guarantee that every future window will satisfy the deterministic margin target \(r_M\) for every HH-relevant candidate. Rather, it combines capacity-relative margin evidence, conservative recovery from failed downward probes, and observable evidence that additional memory can resolve materially relevant threshold ambiguity.
 
-The corresponding control event is
-\[
-q^{t+1} \ge q_{\mathrm{eff}}^{t+1}.
-\]
-When this event holds, the deployed summary size is at least as large as the realized ambiguity-adjusted effective signal of the next window. This is not the same as requiring \(q^{t+1} \ge q_{\mathrm{Req}}^{t+1}\) in every window. If ambiguity has been receding, the signed trend term may deliberately set \(q_{\mathrm{eff}}^{t+1}<q_{\mathrm{Req}}^{t+1}\), allowing the controller to spend less memory while accepting a higher risk of missing the retrospective margin target. Conversely, unresolved or worsening ambiguity raises the effective signal and makes the actuation more conservative.
+By construction, \(q^{t+1}\ge\bar q^{t+1}\): ambiguity can never lower the baseline target. It raises memory only when a positive-utility frontier point resolves enough material ambiguity to justify its proportional cost, or while a previously observed ambiguity margin remains active under the decay rule.
 
-This interpretation also clarifies the role of the gains \(\lambda_A\) and \(\lambda_G\). The first determines how strongly persistent unresolved HH-relevant mass should inflate memory. The second determines how strongly the controller should react to the recent direction of the ambiguity frontier. Since both gains enter in log-space, they induce multiplicative changes in memory rather than additive ones, which is the natural scale for the provisioning problem studied here.
+This interpretation removes the need for an ambiguity-specific gain, resolution floor, or capacity cap. The frontier translates deterministic certificate geometry directly into a bounded memory decision, while \(\beta\) supplies short-lived persistence only to the ambiguity margin.
 
-The predictive sizing layer is now complete. Section~\ref{sec:requirement} produced a realized required-capacity signal \(q_{\mathrm{Req}}^t\) from deterministic certificates. The present section augments that signal with smoothed ambiguity level and signed ambiguity trend, yielding an ambiguity-adjusted effective signal. The controller then forecasts that effective signal in log-space, calibrates the forecast conservatively from recent residuals, and applies the result directly as the next-window summary size.
+The adaptive sizing layer is now complete. The controller increases memory from observed margin violations, releases it only through physical probes, constructs an independent ambiguity proposal from the materiality--cost frontier, and takes the larger proposal at actuation. Baseline sufficiency evidence and certificate-completeness pressure therefore interact only at final actuation, not through each other's state.
 
-This formulation preserves the main design principle of the paper. Memory is still sized from a quantity that is already expressed in units of memory. Ambiguity, however, is no longer a mere thresholded afterthought; it becomes an interactive part of the control signal itself. The remaining section shows how the same certification and planning logic extends to a richer local summary regime with an exact head and an approximate residual tail.
+This formulation preserves the main design principle of the paper: every control signal is expressed directly in memory units or as a log-capacity margin. The remaining section shows how the same certification and planning logic extends to a richer local summary regime with an exact head and an approximate residual tail.
 
 \section{Hybrid Exact-Approximate Tracking}
 \label{sec:extensions}
 
-Sections~\ref{sec:problem}--\ref{sec:predictive} developed the core framework under a deliberately simple regime: each partition maintains a single Space-Saving summary of common size \(q^t\), the coordinator derives deterministic heavy-hitter certificates from the resulting telemetry, and the predictive controller sizes the next window by forecasting the required-capacity signal \(q_{\mathrm{Req}}^t\). This common-size regime is sufficient to state the main certification and planning results cleanly. In practice, however, some workloads contain a small stable head of dominant keys whose repeated approximate tracking is wasteful. This section shows how to reserve exact state for such keys while preserving the same certificate-driven planning architecture.
+Sections~\ref{sec:problem}--\ref{sec:predictive} developed the core framework under a deliberately simple regime: each partition maintains a single Space-Saving summary of common size \(q^t\), the coordinator derives deterministic heavy-hitter certificates from the resulting telemetry, and the controller sizes the next window using one-sided upward pressure, residual-guarded downward probes, and a separate ambiguity guard. This common-size regime is sufficient to state the main certification and planning results cleanly. In practice, however, some workloads contain a small stable head of dominant keys whose repeated approximate tracking is wasteful. This section shows how to reserve exact state for such keys while preserving the same certificate-driven planning architecture.
 
 When a small set of dominant keys remains stable across windows, it may be worthwhile to track those keys exactly while applying Space-Saving only to the residual tail. This yields a hybrid regime that separates stable dominant mass from the dynamically changing remainder of the stream.
 
 Fix a coordinator-chosen promoted head \(E^t \subseteq \mathcal{K}\) in window \(t\). Partition \(i\) then maintains:
 \begin{enumerate}[leftmargin=*]
     \item exact counters for the keys in \(E^t\), and
-    \item a Space-Saving summary \(\mathcal S_{i,\mathrm{res}}^t\) of size \(q_a^t\) over the residual substream
+    \item a Space-Saving summary \(\mathcal S_{i,\mathrm{res}}^t\) of size \(r^t\) over the residual substream
     \[
     \mathcal W_{i,\mathrm{res}}^t
     :=
@@ -1108,9 +1165,9 @@ the residual minimum counter
 c_{i,\mathrm{res}}^t
 :=
 \begin{cases}
-0, & |\mathcal S_{i,\mathrm{res}}^t| < q_a^t,\\[0.75ex]
+0, & |\mathcal S_{i,\mathrm{res}}^t| < r^t,\\[0.75ex]
 \min_{x \in \mathrm{keys}(\mathcal S_{i,\mathrm{res}}^t)}
-\hat f_{i,\mathrm{res}}^t(x), & |\mathcal S_{i,\mathrm{res}}^t| = q_a^t,
+\hat f_{i,\mathrm{res}}^t(x), & |\mathcal S_{i,\mathrm{res}}^t| = r^t,
 \end{cases}
 \]
 again treating unused residual counters as zero, and the residual aggregate estimate
@@ -1162,7 +1219,7 @@ The hybrid regime also admits a residual discoverability guarantee.
 \label{prop:residual-discover}
 If \(N_{\mathrm{res}}^t=0\), no residual key can be a global heavy hitter. Otherwise, define the integer residual floor
 \[
-q_{\mathrm{res},\min}^t
+r_{\min}^t
 :=
 \max\!\left\{
 1,\;
@@ -1171,7 +1228,7 @@ q_{\mathrm{res},\min}^t
 \]
 If
 \[
-q_a^t \ge q_{\mathrm{res},\min}^t,
+r^t \ge r_{\min}^t,
 \]
 then every global heavy hitter \(k \notin E^t\) appears in the residual candidate set
 \[
@@ -1211,9 +1268,9 @@ Thus there exists some residual-active partition \(i\in\mathcal A_{\mathrm{res}}
 >
 \frac{1}{n(1-P_E^t)}.
 \]
-Since \(q_a^t \ge q_{\mathrm{res},\min}^t \ge n(1-P_E^t)\), we have
+Since \(r^t \ge r_{\min}^t \ge n(1-P_E^t)\), we have
 \[
-\frac{1}{q_a^t}
+\frac{1}{r^t}
 \le
 \frac{1}{n(1-P_E^t)},
 \]
@@ -1221,7 +1278,7 @@ so
 \[
 \frac{f_i^t(k)}{N_{i,\mathrm{res}}^t}
 >
-\frac{1}{q_a^t}.
+\frac{1}{r^t}.
 \]
 Lemma~\ref{lem:ss-retention}, applied to the residual summary, implies
 \[
@@ -1229,72 +1286,389 @@ k \in \mathrm{keys}(\mathcal S_{i,\mathrm{res}}^t).
 \]
 \end{proof}
 
+
+\begin{figure*}[!t]
+\centering
+\IfFileExists{figures/margin_service_topology_frontier.pdf}{%
+\includegraphics[width=\textwidth]{figures/margin_service_topology_frontier.pdf}%
+}{%
+\fbox{\parbox[c][1.2in][c]{0.95\textwidth}{\centering Margin and service-fraction topology frontier.}}%
+}
+\caption{Margin and service-fraction calibration under the residual-guarded probing controller on MILP stress workloads with \(m=100\) and \(n\in\{100,200,400\}\). Each point reports mean deployed capacity \(q/n\) and threshold-normalized error \(n\cdot\mathrm{AAE}/N\). The black ring marks the quality-oriented profile \((\varepsilon_M,\alpha)=(0.10,0.90)\); the gray ring marks the memory-oriented profile \((0.15,0.95)\). All panels use the same vertical scale.}
+\Description{Three-panel scatter plot of threshold-normalized error against normalized deployed capacity for n equal to 100, 200, and 400. Black rings identify the quality-oriented configuration epsilon M 0.10 and alpha 0.90. Gray rings identify the memory-oriented configuration epsilon M 0.15 and alpha 0.95.}
+\label{fig:margin-service-frontier}
+\end{figure*}
+
+
 This residual floor shows the value of exact head promotion: once a substantial fraction of the mass is removed into \(E^t\), the approximate discoverability burden on the tail decreases proportionally.
 
-The planning layer extends naturally as well. The exact head requires \(q_e^t := |E^t|\) local counters per partition, while the residual tail admits its own realized required-capacity signal \(q_{a,\mathrm{Req}}^t\), obtained by applying Section~\ref{sec:requirement} to the residual intervals and residual HH-relevant set. The next-window local memory can then be decomposed as
+The planning layer extends naturally as well. Write \(e^t := |E^t|\) for the exact-head counters and \(r^t\) for the residual-summary counters at each partition. The residual tail admits its own service margin \(M_{\mathrm{res},\alpha}^t\) and upward proposal \(r_\uparrow^t\), obtained by applying Section~\ref{sec:requirement} to the residual intervals and residual HH-relevant set. The total next-window local budget is then
 \[
-q_{\mathrm{hyb}}^{t+1}
+b^{t+1}
 =
-q_e^{t+1}
+e^{t+1}
 +
-q_a^{t+1},
+r^{t+1},
 \]
-where \(q_e^{t+1}\) is chosen by a head-promotion rule and \(q_a^{t+1}\) is produced by the predictive controller applied to the residual requirement signal.
+where \(e^{t+1}\) is chosen by a head-promotion rule and \(r^{t+1}\) is produced by the upward-response and probing controller applied to the residual margin signal.
 
-A practical promotion rule is to let \(E^{t+1}\) consist of the most stable certified heavy hitters over a recent window horizon, or equivalently the top-\(L\) keys that repeatedly belong to \(K_+^t\). The precise promotion heuristic is workload-dependent and is therefore best left as a deployment choice. The essential point is that the hybrid regime is not a different framework; it is a structured refinement of the same certification and requirement-based planning architecture.
+A practical promotion rule is to let \(E^{t+1}\) consist of the most stable certified heavy hitters over a recent window horizon, or equivalently the top-\(L\) keys that repeatedly belong to \(K_+^t\). The precise promotion heuristic is workload-dependent and is therefore best left as a deployment choice. The essential point is that the hybrid regime is not a different framework; it is a structured refinement of the same certification and capacity-pressure architecture.
 
 The core framework of the paper remains intentionally narrow: a common-size local Space-Saving summary at each partition, deterministic coordinator-side certification, requirement inversion, and predictive next-window sizing. The hybrid regime broadens only the local telemetry contract: exact counters remove a stable head from the approximate problem, while residual summaries preserve the same signed-envelope analysis for the remaining keys.
 
-This extension does not change the conceptual structure of the paper. Local telemetry still induces deterministic realized-window certificates, those certificates induce a required-capacity signal, and that signal drives next-window provisioning. The hybrid regime is therefore best understood as a structured refinement of the local tracking layer rather than as an alternative formulation of the problem.
+This extension does not change the conceptual structure of the paper. Local telemetry still induces deterministic realized-window certificates, those certificates induce a margin test and one-sided pressure signal, and the controller combines upward response with measured release. The hybrid regime is therefore best understood as a structured refinement of the local tracking layer rather than as an alternative formulation of the problem.
+
+
+
 
 \section{Experimental Evaluation}
 \label{sec:experiments}
 
+\begin{table*}[b]
+\caption{Global-frequency scenarios used in the temporal-controller ablation.
+All windows have \(N=60{,}000\), \(15{,}000\) possible keys, and \(n=200\), so
+the heavy-hitter count threshold is \(\tau=N/n=300\). The stationary
+round-robin and MILP controls use the same generated global windows and differ
+only in their partitioning.}
+\label{tab:temporal-global-scenarios}
+\centering
+\small
+\begin{tabularx}{\textwidth}{@{}p{0.16\textwidth}p{0.34\textwidth}X@{}}
+\toprule
+Experiment & Global-frequency profiles & Temporal program \\
+\midrule
+Sharp step
+& \(\mathsf{E}\): 8 HHs with counts \(1.8\tau\)--\(2.8\tau\), plus 7,000 uniformly weighted background keys.
+  \(\mathsf{H}\): 65 near-threshold HHs at \(1.005\tau\)--\(1.12\tau\), plus 14,900 uniform background keys.
+& \(\mathsf{E}^{30}\rightarrow\mathsf{H}^{50}\rightarrow\mathsf{E}^{30}\). \\
+\addlinespace
+Smooth ramp
+& Same \(\mathsf{E}\) and \(\mathsf{H}\) profiles.
+& \(\mathsf{E}^{15}\), a 30-window interpolation to \(\mathsf{H}\),
+  \(\mathsf{H}^{10}\), a 30-window interpolation back to \(\mathsf{E}\), then
+  \(\mathsf{E}^{15}\). \\
+\addlinespace
+Short bursts
+& Same \(\mathsf{E}\) and \(\mathsf{H}\) profiles.
+& \(\mathsf{E}^{24}\rightarrow\mathsf{H}^{3}\rightarrow
+  \mathsf{E}^{18}\rightarrow\mathsf{H}^{3}\rightarrow
+  \mathsf{E}^{18}\rightarrow\mathsf{H}^{3}\rightarrow\mathsf{E}^{24}\). \\
+\addlinespace
+Block oscillation
+& Same \(\mathsf{E}\) and \(\mathsf{H}\) profiles.
+& Four repetitions of \(\mathsf{E}^{12}\rightarrow\mathsf{H}^{12}\). \\
+\midrule
+Stationary controls
+& Normal mass profile over key rank, with \(15{,}000\) keys and
+  \(\sigma/K\in\{0.0052,0.0050,0.0052\}\). Its center moves through
+  \(0.20K\), \(0.45K\), and \(0.70K\); HH creation is not forced.
+& 30 windows at each center, separated by two 10-window interpolations.
+  Per-window key evolution permits 35\% hot-key drift, 25\% relative-frequency
+  change, and 12\% new keys. The complete 110-window sequence is partitioned
+  entirely by round robin in one control and entirely by MILP stress in the
+  other. \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+
 \subsection{Experimental Setup}
 \label{subsec:exp-setup}
-We evaluate the framework along four axes: the quality of the realized-window certificates, the memory--quality tradeoff of predictive sizing, the contribution of ambiguity-aware control, and the behavior of the hybrid exact-approximate regime. All experiments use a windowed distributed stream with \(m\) input partitions, \(n\) downstream workers, and the strict heavy-hitter threshold \(p(k)>1/n\). Unless otherwise stated, each input partition maintains a local Space-Saving summary and emits the telemetry described in Section~\ref{sec:ss-prelim}.
+We evaluate the framework in four stages. First, we calibrate the deterministic margin and service-fraction parameters used by the complete baseline controller. We then isolate the contribution of downward probing and failed-probe residual evidence, evaluate the ambiguity guard, and finally compare the resulting system against static internal and external baselines. The certification layer is also evaluated independently so that controller behavior can be separated from the correctness and sharpness of the underlying deterministic envelopes.
+
+All experiments use a windowed stream distributed over \(m\) input partitions. The symbol \(n\) has the dual role established in Section~\ref{sec:problem}: it is both the number of downstream workers and the denominator of the strict global heavy-hitter threshold \(p(k)>1/n\). Unless stated otherwise, each input partition maintains a common-size Space-Saving summary with per-item error telemetry, and the coordinator applies the deterministic reduction of Section~\ref{sec:deterministic}. An exact oracle processes the same windows and supplies ground truth for evaluation only; it is not available to the controller.
 
 \paragraph{Workloads and partitioning.}
-We use synthetic streams to isolate specific workload characteristics: stationary Zipf workloads with varying skew, drifting-head workloads in which dominant keys change over time, and threshold-chasing workloads in which several keys oscillate near the heavy-hitter boundary \(1/n\). For the hybrid regime, we additionally use workloads with persistent dominant heads and volatile residual tails. Each workload is evaluated under both benign hash partitioning and stress partitioning, where global heavy hitters are deliberately spread across partitions so that local evidence is weak. We complement the synthetic study with real datasets exhibiting persistent-skew and volatile-frontier behavior.
+The calibration workload is synthetic and intentionally difficult. Each window contains \(N=60{,}000\) records drawn from a drifting near-threshold normal profile, after which the global counts are distributed over \(m=100\) input partitions using the MILP stress transform of Appendix~\ref{app:adversarial-partitioning}. We instantiate the same workload family at \(n\in\{100,200,400\}\), changing the global profile consistently with the corresponding \(1/n\) threshold. This produces three topology settings rather than three unrelated tuning datasets.
+
+The remaining evaluation will use scheduled-difficulty streams with easy, intermediate, and hard partitioning phases for the probing ablation; persistent-locality and MILP stress streams for ambiguity analysis; and benign partitioning together with real CAIDA-derived traces for the final robustness study. Each subsection states explicitly which workload is used. Synthetic stress workloads are not presented as models of ordinary traffic; they are controlled instruments for exercising certificate pressure and memory adaptation.
 
 \paragraph{Methods and baselines.}
-The internal baselines are static Space-Saving with a fixed common size, reactive requirement replay using \(q_{\mathrm{react,Req}}^{t+1}\), reactive effective-signal replay using \(q_{\mathrm{react,eff}}^{t+1}\), predictive sizing driven only by the required-capacity signal, and the full ambiguity-aware predictive controller. The external baseline is HeavyLocker under the static-memory regime used in its original evaluation.
+The core controller combines immediate upward response with physical downward probing. Its temporal ablation compares four controlled variants that share the same service margin and upward response but differ in probe selection and failed-probe protection. The ablation identifies guarded margin-comfort probing as the temporal policy used by the complete controller. The ambiguity study adds the ambiguity guard only after that policy has been fixed. Static Space-Saving provides the internal memory--quality reference, while HeavyLocker is retained as the external adversarial baseline under equal static local-memory budgets. The hybrid exact--approximate tracker is evaluated separately as an extension of the local telemetry layer.
 
 \paragraph{Metrics.}
-Certification metrics include candidate-stage heavy-hitter recall, precision of certified positives \(K_+^t\), mass and cardinality of the ambiguity set \(K_?^t\), and deterministic interval widths. Control metrics include average deployed memory, memory volatility, retrospective requirement miss rate \(\mathbf{1}\{q^t < q_{\mathrm{Req}}^t\}\), effective-target miss rate \(\mathbf{1}\{q^t < q_{\mathrm{eff}}^t\}\), and overprovisioning ratios relative to both \(q_{\mathrm{Req}}^t\) and \(q_{\mathrm{eff}}^t\). When appropriate, we also report update throughput and end-of-window coordination overhead.
+Heavy-hitter quality is reported through precision, recall, and F1 against the oracle set. Frequency quality is measured by average absolute error (AAE) on oracle heavy hitters. To compare different threshold resolutions, we report the threshold-normalized error
+\[
+\frac{n\cdot\mathrm{AAE}}{N},
+\]
+which expresses the mean count error as a fraction of the heavy-hitter count threshold \(N/n\). Memory is reported as the mean deployed capacity \(q/n\), with worker memory in bytes used for equal-budget comparisons. Controller diagnostics include the observed service-violation rate \(\Pr[M_\alpha^t>r_M]\), the number of downward probes, the fraction of probes that fail, and capacity volatility. Certification diagnostics include candidate recall, certified-positive precision, ambiguity mass and cardinality, and deterministic interval width. Runtime experiments additionally report update throughput and coordinator reduction and control time.
+
+\begin{figure*}[b]
+\centering
+\IfFileExists{figures/temporal_controller_stepwise_error_scheduled.pdf}{%
+\includegraphics[width=\textwidth]{figures/temporal_controller_stepwise_error_scheduled.pdf}%
+}{%
+\fbox{\parbox[c][1.8in][c]{0.95\textwidth}{\centering Per-window scheduled error.}}%
+}
+\caption{Per-window threshold-normalized error over four scheduled difficulty profiles. The dashed line is the configured margin budget \(\varepsilon_M=0.10\); background bands identify round-robin, intermediate-MILP, and MILP-stress phases.}
+\Description{Per-window error plots compare four temporal controllers under sharp-step, smooth-ramp, short-burst, and block-oscillation schedules.}
+\label{fig:temporal-controller-scheduled-error}
+\end{figure*}
 
 \subsection{Controller Configuration}
 \label{subsec:exp-config}
-Before comparing against baselines, we select a single default configuration for the proposed controller. The configuration study uses a held-out synthetic calibration suite consisting of stationary Zipf, drifting-head, and threshold-chasing streams under both hash and stress partitioning. The goal is not to tune parameters separately for each workload, but to identify a stable operating region that balances certificate sharpness, underprovisioning risk, and memory footprint.
+We configure the controller in stages. The first experiment selects two operating profiles for the margin and service-fraction pair under a fixed residual-guarded probing reference. The second isolates the temporal release mechanism and selects the final probe-depth policy. The third evaluates ambiguity actuation after that baseline controller has been fixed. This ordering separates the service objective from the choice of downward-release rule while retaining ablations that identify where the final behavior originates.
 
-\subsubsection{Margin and Service-Fraction Selection}
-We first vary the deterministic margin budget \(r_M\) and the service fraction \(\alpha\). The margin budget controls the per-key certificate slack that the requirement signal attempts to satisfy, while \(\alpha\) controls whether the window-level requirement follows most HH-relevant candidates or the hardest outlier. We select \(r_M\) from the elbow of the memory--certificate frontier and choose \(\alpha\) to obtain a high service fraction without the volatility of max-based provisioning.
+\subsubsection{Margin and Service-Fraction Calibration}
+\label{subsubsec:margin-service-calibration}
 
-\subsubsection{Calibration and Ambiguity Parameters}
-We next vary the calibration horizon \(L\), calibration level \(\delta\), ambiguity smoothing \(\rho_A\), trend horizon \(h\), and gains \(\lambda_A,\lambda_G\). The calibration parameters determine how aggressively recent underprediction is converted into a one-sided safety bias. The ambiguity parameters determine how much unresolved HH-relevant mass and its recent trend affect the effective memory signal. We evaluate these parameters using effective-target miss rate, average overprovisioning, and memory volatility.
+We first vary the fractional deterministic margin budget \(\varepsilon_M\) and service fraction \(\alpha\). As defined in Section~\ref{subsec:req-perkey}, the absolute margin target is \(r_M=\varepsilon_M/n\). Hence \(\varepsilon_M\) specifies acceptable deterministic slack in units of the heavy-hitter threshold, while \(\alpha\) determines the fraction of HH-relevant candidates represented by the window-level service margin \(M_\alpha\).
 
-\subsubsection{Default Configuration}
-The selected configuration is then fixed for all remaining experiments. This default includes the target margin \(r_M\), service fraction \(\alpha\), predictor smoothing \(\rho\), ambiguity smoothing \(\rho_A\), trend horizon \(h\), calibration horizon \(L\), calibration level \(\delta\), and ambiguity gains \(\lambda_A,\lambda_G\). We report the chosen values together with the rationale induced by the configuration sweeps.
+The sweep evaluates
+\[
+\varepsilon_M\in\{0.10,0.15,0.20,0.25\},
+\qquad
+\alpha\in\{0.90,0.95,0.98,0.995\}
+\]
+for each \(n\in\{100,200,400\}\). Every combination processes the same ordered windows from a fresh \(q^0=n\). The experiment fixes residual-guarded bracket probing throughout: upward response, downward probing after two sufficient observations, and failed-probe residual guarding are enabled. Holding the temporal mechanism fixed prevents the parameter sweep from conflating the service objective with probe-policy selection. Ambiguity adjustment is disabled.
+
+Figure~\ref{fig:margin-service-frontier} shows the resulting memory--accuracy frontier. The shared vertical scale is deliberate: the \(n=400\) points occupy a narrow low-error band, whereas the smaller-\(n\) workloads distinguish the looser margin settings more sharply. Across all \(\alpha\) values and topologies, the mean \(q/n\) decreases from \(1.70\) at \(\varepsilon_M=0.10\) to \(1.41\), \(1.33\), and \(1.19\) at \(0.15\), \(0.20\), and \(0.25\), respectively. The corresponding mean threshold-normalized errors are \(0.00165\), \(0.00785\), \(0.01050\), and \(0.02138\). Thus \(\varepsilon_M\) is the primary quality--memory control: \(0.10\) defines a visibly stricter accuracy regime, while \(0.25\) releases memory at a substantial quality cost.
+
+The effect of \(\alpha\) is secondary and is not monotone under closed-loop control. Changing the service quantile can alter an early upward response or probe outcome, which changes the capacity at which later telemetry is collected. Consequently, adjacent \(\alpha\) values may follow different trajectories even though the service statistic itself is an ordered quantile. At the strict margin \(\varepsilon_M=0.10\), \(\alpha=0.90\) already produces uniformly low error and avoids paying for a more aggressive service fraction. At \(\varepsilon_M=0.15\), \(\alpha=0.95\) gives the lowest cross-topology mean error among the four service fractions without adopting the largest \(\alpha\).
+
+We promote two operating choices. The pair \((0.10,0.90)\) is the
+\emph{quality-oriented} profile: it applies a strict margin to \(90\%\) of the
+realized frontier and yields consistently low error without relying on an
+extreme service quantile. The \emph{memory-oriented} profile
+\((0.15,0.95)\) lowers mean \(q/n\) by approximately \(17\%\), \(13\%\), and
+\(9\%\) for \(n=100,200,400\), respectively, while accepting higher error.
+The quality-oriented profile is the primary configuration in
+accuracy-sensitive comparisons; the memory-oriented profile is reported where
+the objective is to expose a more aggressive memory--quality tradeoff.
+
+
+
+\subsubsection{Temporal-Controller Ablation}
+\label{subsubsec:temporal-ablation}
+We next isolate the temporal release mechanism using the quality-oriented profile \((\varepsilon_M,\alpha)=(0.10,0.90)\), with ambiguity adjustment disabled. Every variant starts from \(q^0=n\), applies the same origin-aware upward response when \(M_\alpha^t>r_M\), and requires two consecutive sufficient observations before attempting a downward probe. The variants differ only in how the probe is selected and how failed-probe evidence is retained.
+
+
+
+The ablation compares four variants. \emph{Bracket probing} uses the geometric
+midpoint of its observed capacity bracket and discards failed-probe evidence.
+\emph{Guarded bracket probing} retains the upward demand exposed by a failed
+probe until recovery is confirmed. \emph{Guarded margin comfort} keeps that
+guard but replaces bracket interpolation with the capped arithmetic probe of
+Equation~\eqref{eq:comfort-probe}. Finally, \emph{pressure-gated comfort}
+also vetoes a probe when \(\rho>0.5\). The pressure gate is an ablation
+mechanism rather than part of the proposed controller.
+
+
+
+
+\paragraph{Workloads.}
+We organize the ablation into two groups with different purposes. The first
+contains four scheduled profiles that move between easy round-robin,
+intermediate MILP, and hard MILP partitioning: a sharp step, a smooth ramp,
+short hard bursts, and repeated block oscillation. These workloads test whether
+the controller can release and recover memory as difficulty changes over time.
+The second group contains two stationary controls generated from matched global
+windows: full round-robin partitioning and full MILP stress partitioning. This
+pair holds temporal structure fixed and isolates the effect of partitioning
+difficulty. Keeping the groups separate avoids treating stationary controls as
+additional temporal profiles or obscuring transition behavior through a
+six-workload average.
+
+
+
+Figure~\ref{fig:temporal-controller-scheduled-error} shows why aggregate means alone
+are insufficient. Unguarded bracket probing repeatedly revisits capacities
+already shown to be unsafe, producing abrupt error spikes after downward
+steps. Retaining failed-probe evidence removes many of these repetitions.
+Margin-comfort probing releases memory more gradually and tracks abrupt,
+bursty, and oscillating changes with fewer severe excursions, although its
+continued exploration is less advantageous on the smooth ramp. Pressure
+gating suppresses some probes, but can remain overprovisioned after difficulty
+falls. The relevant distinction is therefore not simply how often a policy
+probes, but whether its probe depth and retained failure evidence prevent the
+same unsafe reduction from recurring.
+
+\begin{figure*}[!t]
+\centering
+\IfFileExists{figures/temporal_controller_stepwise_capacity_scheduled.pdf}{%
+\includegraphics[width=\textwidth]{figures/temporal_controller_stepwise_capacity_scheduled.pdf}%
+}{%
+\fbox{\parbox[c][1.8in][c]{0.95\textwidth}{\centering Per-window scheduled capacity.}}%
+}
+\caption{Per-window deployed capacity \(q/n\) over four scheduled difficulty profiles. Markers identify downward probes, failed probes, and service violations; background bands identify the active partitioning regime.}
+\Description{Per-window capacity plots compare four temporal controllers under sharp-step, smooth-ramp, short-burst, and block-oscillation schedules.}
+\label{fig:temporal-controller-scheduled-capacity}
+\end{figure*}
+
+Figure~\ref{fig:temporal-controller-scheduled-capacity} exposes the corresponding
+memory trajectories. Margin-comfort probing releases memory in measured steps,
+while pressure gating often delays release after difficulty falls.
+
+\begin{figure*}[!b]
+\centering
+\IfFileExists{figures/temporal_controller_stepwise_error_stationary.pdf}{%
+\includegraphics[width=\textwidth]{figures/temporal_controller_stepwise_error_stationary.pdf}%
+}{%
+\fbox{\parbox[c][1.5in][c]{0.95\textwidth}{\centering Per-window stationary error.}}%
+}
+\caption{Per-window threshold-normalized error under matched stationary round-robin and MILP-stress partitioning. The dashed line is the configured margin budget \(\varepsilon_M=0.10\).}
+\Description{Per-window error plots compare four temporal controllers under stationary round-robin and stationary MILP-stress partitioning.}
+\label{fig:temporal-controller-stationary-error}
+\end{figure*}
+
+Figures~\ref{fig:temporal-controller-stationary-error}
+and~\ref{fig:temporal-controller-stationary-capacity} separate two persistent
+regimes. Under round robin, every policy periodically probes because
+high-capacity sufficiency cannot certify an unobserved lower capacity.
+Residual guarding and margin comfort reduce the resulting error excursions
+without freezing memory permanently. Under sustained MILP stress, failed
+reductions expose a recurring lower boundary. The guarded policies retain
+that evidence, whereas unguarded bracket probing repeatedly reconstructs the
+same sawtooth cycle. Pressure gating is the most reluctant to release memory,
+but its larger capacity does not consistently produce lower error than guarded
+margin comfort.
+
+These results support guarded margin-comfort probing as the default temporal policy. The bracket variants remain diagnostic baselines, and pressure gating demonstrates that making downward release uniformly more conservative can suppress failures without improving the final tradeoff. The selected controller instead uses pressure to limit probe depth while continuing to validate every lower capacity physically.
+
+
+\begin{figure*}[!h]
+\centering
+\IfFileExists{figures/temporal_controller_stepwise_capacity_stationary.pdf}{%
+\includegraphics[width=\textwidth]{figures/temporal_controller_stepwise_capacity_stationary.pdf}%
+}{%
+\fbox{\parbox[c][1.5in][c]{0.95\textwidth}{\centering Per-window stationary capacity.}}%
+}
+\caption{Per-window deployed capacity \(q/n\) under matched stationary round-robin and MILP-stress partitioning. Markers identify downward probes, failed probes, and service violations.}
+\Description{Per-window capacity plots compare four temporal controllers under stationary round-robin and stationary MILP-stress partitioning.}
+\label{fig:temporal-controller-stationary-capacity}
+\end{figure*}
+
+\begin{table*}[b]
+\caption{Ambiguity-guard ablation. The left group reports operation without
+the guard. The right group reports operation with the guard, followed by the
+change relative to the baseline in parentheses; F1 changes are in percentage
+points. Error is \(n\cdot\mathrm{AAE}/N\), and Act. is the fraction of windows
+in which the ambiguity target exceeds the temporal baseline.}
+\label{tab:ambiguity-ablation}
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3.6pt}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lcrrrrrrrrrr@{}}
+\toprule
+& &
+\multicolumn{4}{c}{Guard off} &
+\multicolumn{5}{c}{Guard on (change)} \\
+\cmidrule(lr){3-6}\cmidrule(l){7-11}
+Workload & \(n\) &
+Error \(\downarrow\) &
+\(\overline q/n\;\downarrow\) &
+HH F1 \(\uparrow\) &
+\(\overline{|K_?|}\;\downarrow\) &
+Error \(\downarrow\) &
+\(\overline q/n\;\downarrow\) &
+HH F1 \(\uparrow\) &
+\(\overline{|K_?|}\;\downarrow\) &
+Act. \\
+\midrule
+MILP stress
+& 100 & \(4.07{\times}10^{-3}\) & 1.55 & 0.973 & 12.77 &
+\(7.26{\times}10^{-4}\;(-82.1\%)\) & \(2.24\;(+44.6\%)\) &
+\(0.997\;(+2.4)\) & \(1.58\;(-87.6\%)\) & 100.0\% \\
+& 200 & \(1.73{\times}10^{-3}\) & 1.82 & 0.989 & 25.15 &
+\(6.84{\times}10^{-4}\;(-60.4\%)\) & \(2.11\;(+15.9\%)\) &
+\(0.997\;(+0.7)\) & \(3.80\;(-84.9\%)\) & 100.0\% \\
+& 400 & \(9.71{\times}10^{-4}\) & 2.21 & 0.984 & 8.03 &
+\(6.54{\times}10^{-4}\;(-32.7\%)\) & \(2.35\;(+6.3\%)\) &
+\(0.988\;(+0.4)\) & \(7.36\;(-8.3\%)\) & 100.0\% \\
+\addlinespace[2pt]
+Persistent locality
+& 100 & \(1.92{\times}10^{-5}\) & 1.22 & 0.976 & 4.82 &
+\(2.02{\times}10^{-6}\;(-89.5\%)\) & \(1.67\;(+37.0\%)\) &
+\(0.997\;(+2.1)\) & \(0.61\;(-87.4\%)\) & 100.0\% \\
+& 200 & \(1.47{\times}10^{-5}\) & 1.12 & 0.975 & 4.19 &
+\(3.20{\times}10^{-6}\;(-78.2\%)\) & \(1.22\;(+9.6\%)\) &
+\(0.985\;(+1.0)\) & \(2.45\;(-41.4\%)\) & 97.3\% \\
+& 400 & \(1.44{\times}10^{-6}\) & 1.00 & 0.986 & 6.16 &
+\(0\;(-100.0\%)\) & \(1.02\;(+1.6\%)\) &
+\(0.989\;(+0.4)\) & \(4.70\;(-23.7\%)\) & 94.5\% \\
+\bottomrule
+\end{tabular*}
+\end{table*}
+
+\subsubsection{Ambiguity-Guard Ablation}
+\label{subsubsec:ambiguity-ablation}
+We finally isolate the ambiguity adjustment of Section~\ref{subsec:ambiguity}.
+Both variants use the quality-oriented profile
+\((\varepsilon_M,\alpha)=(0.10,0.90)\) and guarded margin-comfort probing; they
+differ only in whether the materiality--cost ambiguity frontier is allowed to
+raise the baseline target. We evaluate the pair on the MILP stress workloads
+from Section~\ref{subsubsec:margin-service-calibration} and on matched
+persistent-locality ambiguity-stress workloads. The latter preserve stable
+per-key partition affinities across windows, as described in
+Appendix~\ref{app:persistent-locality}. Each experiment contains 110 windows
+over \(m=100\) input partitions. The ambiguity margin uses the fixed
+persistence factor \(\beta=0.5\).
+
+
+
+Table~\ref{tab:ambiguity-ablation} shows that the ambiguity signal is
+actionable on the MILP workloads. At \(n=100\), the guard reduces
+threshold-normalized error by \(82\%\) and raises F1 from \(0.973\) to
+\(0.997\), at the cost of increasing mean capacity from \(1.55n\) to
+\(2.24n\). At \(n=200\), the error reduction remains substantial
+(\(60\%\)) while the capacity increase falls to \(16\%\). The \(n=400\)
+workload already runs at \(2.21n\) without the guard, leaving less unresolved
+certificate geometry for additional memory to improve. The guard consequently
+adds only \(6\%\) capacity and yields a smaller, though still positive, error
+reduction.
+
+The persistent-locality workloads require a different interpretation. Their
+baseline frequency error is already between \(10^{-5}\) and \(10^{-6}\) in
+threshold units. Percentage reductions are therefore numerically large but
+practically small. The useful result is that the frontier responds
+proportionally to the remaining opportunity: its capacity premium decreases
+from \(37\%\) at \(n=100\), to \(9.6\%\) at \(n=200\), and \(1.6\%\) at
+\(n=400\). In all three cases, the guard reduces the unresolved candidate set
+and improves F1 without sacrificing heavy-hitter recall.
+
+Actuation is frequent because both workload families were constructed to
+maintain threshold-crossing uncertainty, and the ambiguity margin persists
+briefly across adjacent windows. Frequent actuation does not imply a fixed
+memory surcharge: the frontier-selected lift falls sharply as the temporal
+baseline itself becomes sufficient. This distinction is visible at
+\(n=400\), where the guard is active in most windows but changes mean capacity
+by only \(1.6\%\) under persistent locality. Overall, the ablation supports
+ambiguity adjustment as a useful component of the complete controller: it
+produces large gains when unresolved certificates remain material, while its
+incremental cost contracts when the baseline already provides adequate
+resolution.
+
+\subsubsection{Selected Operating Profiles}
+The remainder of the evaluation carries the quality-oriented and memory-oriented margin profiles forward without retuning them per workload. Guarded margin-comfort probing is used as the temporal controller following Section~\ref{subsubsec:temporal-ablation}; ambiguity is enabled only in experiments explicitly evaluating or using the complete controller.
 
 \subsection{Deterministic Certification Quality}
-We first evaluate the realized-window certification layer independently of forecasting. We measure discoverability as a function of local memory, examine the fraction of mass falling into certified positives, certified negatives, and ambiguous keys, and analyze the sharpness of the resulting deterministic frequency envelopes. These experiments validate the practical usefulness of the coordinator-side certificates introduced in Sections~\ref{sec:ss-prelim} and~\ref{sec:deterministic}.
+\label{subsec:exp-certification}
+This subsection will evaluate the realized-window certification layer independently of temporal control. The planned analysis varies local capacity and partitioning regime, then reports candidate recall, certified-positive precision, ambiguity mass, and interval width. This isolates the information quality available to any sizing policy built on the same telemetry.
 
-\subsection{Predictive Sizing Performance}
-We next evaluate the requirement-based controller over time. We compare static provisioning, reactive requirement replay, reactive effective-signal replay, predictive requirement-only control, and the full ambiguity-aware controller. The main goal is to quantify the tradeoff between deployed memory, retrospective requirement misses, and effective-target misses across workloads with different levels of skew and temporal drift. To isolate the role of ambiguity, we include ablations with requirement-only prediction, requirement plus ambiguity level, and requirement plus ambiguity level and trend.
+\subsection{End-to-End Adaptive Sizing}
+\label{subsec:exp-end-to-end}
+This subsection will evaluate the complete controller across stationary, drifting, scheduled-difficulty, adversarial, and real traces. Static Space-Saving capacities will define the memory--quality frontier against which the two promoted adaptive profiles are compared. The principal outputs will be threshold-normalized error, HH quality, mean and volatile memory, and temporal response around regime changes.
 
 \subsection{Static-Memory Comparison with HeavyLocker}
-We compare the proposed method against HeavyLocker under equal static local-memory budgets. Since HeavyLocker is evaluated in the static regime in its original paper, we keep that comparison faithful to the baseline's intended operating model. We report heavy-hitter accuracy metrics and runtime, and contrast them with the behavior of the proposed framework under comparable memory budgets.
+\label{subsec:exp-heavylocker}
+This subsection will compare against HeavyLocker under equal static local-memory budgets. Benign partitioning will establish the conventional baseline, while stress partitioning will test sensitivity to the random-routing assumption. The comparison will report HH precision, recall, F1, frequency error, and throughput without attributing adaptive behavior to a static baseline.
 
 \subsection{Hybrid Exact-Approximate Tracking}
-We evaluate the hybrid regime of Section~\ref{sec:extensions} on workloads with stable dominant heads. We compare pure approximate tracking against exact-head plus approximate-tail tracking under comparable local memory, and measure whether removing stable head mass improves residual discoverability, interval sharpness, and predictive sizing stability.
+\label{subsec:exp-hybrid}
+This subsection will evaluate the extension of Section~\ref{sec:extensions} on workloads with persistent dominant heads and volatile residual tails. Pure approximate tracking and exact-head plus approximate-tail tracking will be compared at matched memory to determine whether removing stable head mass sharpens residual certificates and improves sizing stability.
+
+\subsection{Runtime and Scalability}
+\label{subsec:exp-runtime}
+This subsection will report update throughput, coordinator reduction time, controller overhead, and telemetry memory while varying \(m\), \(n\), and candidate-set size. The goal is to separate the computational cost of deterministic certification from the cost of the local sketch updates.
 
 \subsection{Summary of Findings}
-We conclude the section by summarizing the main empirical findings: the quality of the realized-window certification layer, the effectiveness of requirement-based predictive sizing, the contribution of ambiguity-aware control, the robustness of the controller to parameter variation, and the benefit of hybrid exact-approximate tracking when dominant keys persist across windows.
+This subsection will consolidate the completed findings after the remaining experiments are populated. It will distinguish empirical results about certificate quality, temporal adaptation, ambiguity actuation, external-baseline robustness, and runtime rather than repeating individual table entries.
 
 \section{Related Work}
 \label{sec:related}
 
-Our framework sits at the intersection of streaming algorithms, distributed continuous monitoring, and adaptive resource provisioning. We review the most relevant literature in these areas and contrast it with our deterministic, requirement-based approach.
+Our framework sits at the intersection of streaming algorithms, distributed continuous monitoring, and adaptive resource provisioning. We review the most relevant literature in these areas and contrast it with our deterministic, capacity-pressure approach.
 
 \subsection{Fundamental Sketching Primitives}
 The foundation of modern stream processing relies on single-node sublinear data structures. Foundational algorithms such as Lossy Counting \cite{manku2002approximate} and the Count-Min Sketch \cite{cormode2005improved} provide robust mechanisms for frequency estimation and heavy-hitter tracking under bounded memory. Our local primitive of choice is Space-Saving, originally introduced via the Stream-Summary data structure by Metwally et al.~\cite{metwally2005efficient}. 
@@ -1309,7 +1683,7 @@ Our setting operates under a distinctly different paradigm. Rather than optimizi
 \subsection{Adaptive Sizing and Resource Provisioning}
 The predictive controller half of our architecture relates closely to dynamic resource provisioning and the vertical autoscaling of stateful operators in stream processors \cite{kalavri2020performance}. Systems like Dhalion \cite{floratou2017dhalion} and DS2 \cite{kalavri2018three} introduce self-regulating topologies and automatic scaling policies to handle workload skew and throughput bottlenecks. These approaches typically monitor abstract, coarse-grained metrics---such as CPU utilization, backpressure, or estimated processing rates---and rely on heuristics or complex performance models to map those metrics into operator parallelism or memory allocations.
 
-Our framework diverges from these methods by natively computing a \emph{required capacity} signal ($q_{\mathrm{Req}}$). Because our inference layer directly asks what local memory capacity the certification model would prescribe to meet a specific service target in a realized window, the resulting signal is already expressed in units of memory. This requirement-based view bypasses the complex, error-prone translation of stochastic difficulty scores into resource allocation, yielding a cleaner separation between inference and predictive provisioning.
+Our framework diverges from these methods by using deterministic certificate margins as capacity-relative control evidence. A margin violation is translated directly into an origin-aware upward demand, while successful telemetry authorizes no counterfactual decrease. Downward adaptation is instead performed through measured probes. This separation avoids treating a capacity-conditioned difficulty observation as a bidirectional memory label.
 
 \subsection{Deterministic vs. Probabilistic Guarantees}
 Streaming heavy-hitter algorithms occupy both randomized and deterministic parts of the design space. Hash-based sketches such as Count-Min provide compact frequency estimates with probabilistic error guarantees, typically expressed in terms of hash collisions and failure probability \cite{cormode2005improved}. By contrast, counter-based summaries such as Lossy Counting and Space-Saving provide deterministic single-stream guarantees for \(L_1\)-style frequency tracking \cite{manku2002approximate, metwally2005efficient}. Our use of Space-Saving therefore does not claim determinism as a new property of the local primitive; rather, it uses that deterministic local structure to build coordinator-side certificates from fragmented distributed views.
@@ -1325,15 +1699,93 @@ This phenomenon has been documented in data-center traffic. Benson et al.~\cite{
 
 A similar conclusion holds for textual and social-media streams. Diao et al.~\cite{diao2012bursty} show that microblog topics often evolve in bursty temporal patterns rather than as independent snapshots. Lehmann et al.~\cite{lehmann2012dynamical} further demonstrate that hashtag popularity on Twitter follows structured attention trajectories, indicating that collective attention exhibits recognizable temporal classes. More recently, Liu et al.~\cite{liu2023analyzing} study the persistence of news tweets and show that recent engagement behavior is predictive of short-term continuation. These results suggest that adjacent windows in textual streams often contain meaningful predictive signal about the continuation, decay, or transition of active topics.
 
-Our predictive controller is therefore grounded in an empirical regularity that appears across multiple stream domains: recent windows are often informative about the next one. The controller does not require stationarity or exact repetition of past behavior. It only relies on the weaker premise that short-horizon temporal dependence is common enough in practice to make recent realized requirements, ambiguity levels, and ambiguity trends useful inputs for next-window provisioning.
+Our predictive controller is therefore grounded in an empirical regularity that appears across multiple stream domains: recent windows are often informative about the next one. The controller does not require stationarity or exact repetition of past behavior. It only relies on the weaker premise that short-horizon temporal dependence is common enough in practice to make recent baseline requirements useful inputs for next-window provisioning, while ambiguity acts as a conservative certificate-completeness guard at actuation time.
 
 
 \appendix
 
-\section{Stress Partitioning for Synthetic Workloads}
+\section{Global-Frequency Generation}
+\label{app:global-frequency-generation}
+
+\subsection{Controlled Heavy-Hitter/Background Distribution}
+\label{app:hh-background}
+
+The controlled heavy-hitter/background distribution, identified as
+\texttt{controlled\_hh\_background} in the generator configuration, is a per-window
+\emph{global-frequency generator}, not a partitioning policy.
+It first determines the count of every key in a window; a separate policy then
+distributes those counts across the \(m\) input partitions. This separation
+allows the experiments to vary global frequency difficulty independently of
+local visibility.
+
+For a window of mass \(N\) and heavy-hitter denominator \(n\), let
+\[
+\tau=\frac{N}{n}
+\]
+denote the non-integer heavy-hitter count scale. The generator accepts a
+desired number \(h\) of heavy hitters and a ratio interval
+\([r_{\min},r_{\max}]\), with \(r_{\min}>1\). It selects \(h\) designated
+keys and assigns linearly spaced ratios
+\[
+r_1=r_{\max}\ge r_2\ge\cdots\ge r_h=r_{\min}.
+\]
+Their initial integer counts are
+\[
+f(k_j)
+=
+\max\!\left\{
+\lfloor\tau\rfloor+1,\;
+\operatorname{round}(r_j\tau)
+\right\},
+\qquad j\in[h].
+\]
+Thus each designated key is strictly globally heavy. If their requested total
+exceeds \(N\), the implementation scales those counts down while retaining
+the strict floor \(\lfloor\tau\rfloor+1\).
+
+The remaining mass is assigned to \(b\) background keys. Background weights
+are either uniform or linearly decreasing. For normalized weights \(w_j\),
+the provisional background count is
+\[
+f(u_j)
+=
+\min\!\left\{
+\lfloor\tau\rfloor-1,\;
+\left\lfloor
+w_j\!\left(N-\sum_{\ell=1}^{h}f(k_\ell)\right)
+\right\rfloor
+\right\}.
+\]
+The strict cap keeps every background key globally non-heavy. Integer
+remainders are distributed among background keys with available headroom.
+If the configured background population cannot absorb the complete remainder
+without crossing the cap, the residue is assigned round-robin to the
+designated heavy hitters. The final counts therefore satisfy
+\[
+\sum_k f(k)=N,
+\]
+while preserving the intended heavy/background classification.
+
+This generator supports controlled regimes with either a small, clearly
+separated heavy head or many heavy hitters close to the decision boundary.
+For example, the temporal-controller workloads use an easy profile with eight
+keys at \(1.8\tau\)--\(2.8\tau\), and a boundary-heavy profile with 65 keys at
+\(1.005\tau\)--\(1.12\tau\). Transitions between such parameterizations alter
+the global distribution; the partitioning schedule independently controls how
+visible those global counts become at individual sites.
+
+\section{In-Window Partitioning}
+\label{app:in-window-partitioning}
+
+Once a global-frequency generator has produced \(f^t(k)\), an in-window
+partitioning policy assigns those counts to the \(m\) local streams. The
+following two policies preserve every global key count but induce different
+local evidence patterns.
+
+\subsection{MILP Stress Partitioning}
 \label{app:adversarial-partitioning}
 
-This appendix specifies the partitioning transform used for the synthetic stress workloads in Section~\ref{sec:experiments}. The transform is applied after the global window distribution has already been generated. It therefore changes only the placement of records across input partitions, not the global key frequencies observed by the coordinator.
+This appendix specifies the adversarial partitioning transform used for the synthetic stress workloads in Section~\ref{sec:experiments}. The transform is applied after the global window distribution has already been generated. It therefore changes only the placement of records across input partitions, not the global key frequencies observed by the coordinator.
 
 For a fixed window \(t\), the global generator provides counts \(f^t(k)\) satisfying \(\sum_k f^t(k)=N^t\). A partitioning is admissible if it produces nonnegative integer local counts \(f_i^t(k)\) such that
 \[
@@ -1345,47 +1797,179 @@ and
 \sum_k f_i^t(k)=N_i^t
 \qquad\forall i,
 \]
-where the target masses \(N_i^t\) satisfy \(\sum_i N_i^t=N^t\). The stress construction below is one admissible partitioning policy.
+where the target masses \(N_i^t\) satisfy \(\sum_i N_i^t=N^t\). The MILP construction below is one admissible partitioning policy. Its purpose is not to change which keys are globally heavy, but to make the local evidence pattern as difficult as possible for bounded per-partition summaries.
 
-\subsection{Target Partition Masses}
+\subsubsection{Target Partition Masses}
 
-The target masses \(N_i^t\) are chosen before individual keys are placed. They may be mildly nonuniform to exercise fragmented-evidence regimes, but each mass is capped so that no partition receives a degenerate fraction of the window. This preserves the interpretation of each \(\mathcal W_i^t\) as a meaningful local stream while avoiding the special case in which the problem is nearly centralized.
-
-\subsection{Heavy-Hitter Placement}
-
-The globally heavy keys are the keys in \(\mathcal H_n^t\), as defined in Definition~\ref{def:hh}. These keys are placed first because their local visibility determines whether the candidate set \(\mathcal U^t\) can contain all global heavy hitters.
-
-Fix a stress parameter \(\rho\in(0,1]\). For each partition \(i\), define a local placement cap
+The target masses \(N_i^t\) are chosen before individual keys are placed. In the calibration workloads used in Section~\ref{sec:experiments}, we use balanced target masses up to integer rounding. This isolates the stress effect to the key placement rather than to gross partition-size imbalance. For each partition \(i\), define the local strict reporting scale
 \[
-\tau_i^t=\rho\frac{N_i^t}{n},
+T_i^t=\left\lfloor \frac{N_i^t}{n}\right\rfloor + 1.
 \]
-which is a fraction of the local heavy-hitter scale. For the keys in \(\mathcal H_n^t\), the construction first solves the capped allocation problem with variables \(x_i(k)\):
+A key whose local count reaches \(T_i^t\) is locally above the strict heavy-hitter count threshold induced by \(n\), whereas counts below \(T_i^t\) remain locally sub-threshold.
+
+\subsubsection{Target Keys}
+
+Solving over every active key can be unnecessarily expensive, so the optimization focuses on the keys that can most affect certificate difficulty. Let \(\mathcal H_n^t\) be the global heavy hitters from Definition~\ref{def:hh}. The implementation first computes a target budget
 \[
-\max \sum_{k\in\mathcal H_n^t}\sum_{i=1}^m x_i(k)
+B^t
+=
+\min\!\left\{
+|\{k:f^t(k)>0\}|,\;
+\max\!\left(B_0,B_{\min},\left\lceil \gamma n\right\rceil\right)
+\right\},
 \]
-subject to
+where \(B_0\), \(B_{\min}\), and \(\gamma\) are configuration parameters. In the calibration workloads, \(B_0=B_{\min}=40\) and \(\gamma=0.4\), so the optimized target set contains at least forty keys when enough active keys exist and scales with the topology size through \(\lceil 0.4n\rceil\).
+
+The budget is split between true global heavy hitters and globally non-heavy distractors. A fraction \(\phi_H\) of the budget is reserved for heavy hitters, with at least one heavy key selected when any exist. The selected heavy set \(\mathcal G^t\subseteq\mathcal H_n^t\) prioritizes keys closest to the global threshold \(N^t/n\), because these keys are hardest to certify from fragmented evidence.
+
+The distractor pool contains globally non-heavy keys whose counts lie in a configurable near-threshold band
 \[
-0\le x_i(k)\le \tau_i^t,\qquad
-\sum_{i=1}^m x_i(k)\le f^t(k),\qquad
-\sum_{k\in\mathcal H_n^t} x_i(k)\le N_i^t.
+\rho_{\min}\frac{N^t}{n}
+\le
+f^t(k)
+\le
+\rho_{\max}\frac{N^t}{n}.
 \]
-The assigned values \(x_i(k)\) are added to \(f_i^t(k)\). This stage spreads each global heavy hitter across partitions while keeping its local frequency near or below the local detection boundary whenever the partition capacities permit it.
+The deployed calibration uses \(\rho_{\min}=0.65\) and \(\rho_{\max}=0.995\). From this pool, the implementation selects keys closest to the global threshold, subject to the remaining target budget and the configured non-HH count multiplier. These keys form \(\mathcal D^t\). They are globally non-heavy but can become locally salient in selected partitions. The optimized target set is
+\[
+\mathcal K_\star^t=\mathcal G^t\cup \mathcal D^t.
+\]
+If no eligible target keys exist, the implementation falls back to round-robin placement for that window. Otherwise, all keys outside \(\mathcal K_\star^t\) are placed after the optimization as filler while preserving their global counts exactly.
 
-If a heavy hitter has residual mass after the capped allocation, the remaining count is distributed across partitions with available capacity using a water-filling rule. This second pass preserves the global count \(f^t(k)\) but avoids concentrating all overflow in a single partition unless the remaining capacities force that outcome.
+\subsubsection{MILP Formulation}
 
-\subsection{Non-Heavy-Key Placement}
+For every target key \(k\in\mathcal K_\star^t\) and partition \(i\), the MILP uses an integer variable
+\[
+x_i(k)\in\mathbb Z_{\ge 0}
+\]
+for the local count assigned to partition \(i\). It also uses a binary variable
+\[
+z_i(k)\in\{0,1\}
+\]
+that indicates whether \(k\) is locally salient on partition \(i\), and an auxiliary integer variable
+\[
+u_i(k)\in\mathbb Z_{\ge 0}
+\]
+that counts hidden sub-threshold mass for globally heavy target keys.
 
-After all keys in \(\mathcal H_n^t\) have been placed, the remaining partition capacity is filled with keys outside \(\mathcal H_n^t\). These keys are processed in decreasing order of \(f^t(k)\). Each key is split across partitions with available capacity, again preferring local chunks whose sizes are comparable to \(\tau_i^t\). If residual mass remains after those capped placements, it is assigned by the same water-filling rule used for heavy-hitter overflow.
+The first constraints preserve the global count of every optimized target key:
+\[
+\sum_{i=1}^m x_i(k)=f^t(k)
+\qquad\forall k\in\mathcal K_\star^t.
+\]
+The optimized target keys may not exceed the target partition masses:
+\[
+\sum_{k\in\mathcal K_\star^t} x_i(k)\le N_i^t
+\qquad\forall i.
+\]
+To avoid degenerate solutions in which all mass of a key is concentrated in one partition, the solver bounds each \(x_i(k)\) by a per-key concentration cap
+\[
+x_i(k)\le \beta f^t(k)
+\qquad\forall i,\; k\in\mathcal K_\star^t,
+\]
+for a fixed \(\beta\in(0,1]\), and also by the corresponding partition mass. The deployed calibration uses \(\beta=0.25\), so no optimized key may place more than one quarter of its global count on a single partition.
 
-This produces non-heavy keys that may be locally salient in individual partitions, even though their global frequencies remain below the heavy-hitter threshold. The resulting local summaries therefore contain competition between diluted global heavy hitters and locally prominent non-heavy keys.
+The binary salience variables are linked to the local threshold by standard big-\(M\) constraints:
+\[
+x_i(k)\ge T_i^t z_i(k),
+\]
+and
+\[
+x_i(k)\le T_i^t-1+f^t(k)z_i(k).
+\]
+Thus \(z_i(k)=1\) forces the key to be locally above threshold, while \(z_i(k)=0\) forces it to remain below threshold on that partition.
 
-\subsection{Properties of the Construction}
+For globally heavy target keys, the optimization rewards mass that is placed below local threshold. The auxiliary variables satisfy
+\[
+u_i(k)\le x_i(k),
+\]
+and
+\[
+u_i(k)\le (T_i^t-1)(1-z_i(k)).
+\]
+Consequently, \(u_i(k)\) can be positive only when the key is locally sub-threshold on partition \(i\), and it is bounded by the hidden local count assigned there.
+
+The objective combines two adversarial goals:
+\[
+\max
+\lambda_H
+\sum_{k\in\mathcal G^t}\sum_{i=1}^m u_i(k)
++
+\lambda_D
+\sum_{k\in\mathcal D^t}\sum_{i=1}^m z_i(k),
+\]
+where \(\lambda_H,\lambda_D\ge 0\) weight the two effects. The first term hides as much globally heavy mass as possible below local thresholds. The second term makes globally non-heavy distractors locally salient, increasing competition inside bounded local summaries.
+
+The live generator solves this MILP with integer \(x_i(k)\), binary \(z_i(k)\), and integer \(u_i(k)\). The calibration configuration uses equal objective weights \(\lambda_H=\lambda_D=1\), a 300-second solver time limit, and a relative MIP gap tolerance of \(0.01\). If the solver returns a feasible incumbent, the resulting real-valued solution is rounded back to integer local counts with a deterministic repair pass that preserves each optimized key's global count exactly.
+
+\subsubsection{Filler Placement}
+
+After the MILP places the target keys, all remaining keys are assigned deterministically to the residual partition capacities. The filler pass processes the remaining keys in decreasing global count order and repeatedly allocates each key across partitions with available residual capacity, using a stable hash only to break ties. This step preserves every global key count exactly and fills each partition to its prescribed mass. It does not optimize the adversarial objective, but it ensures that the final output is a complete admissible partitioning of the original generated window.
+
+\subsubsection{Properties of the Construction}
 
 The construction preserves the global workload exactly: for every key \(k\), the coordinator-facing global count remains \(f^t(k)\), and each partition has the prescribed mass \(N_i^t\). It affects only the local evidence pattern seen by the summaries \(\mathcal S_i^t\).
 
-The purpose of this transform is to stress the coordinator-side inference problem studied in the paper. Under random routing, a global heavy hitter often appears proportionally in many partitions. Under the stress partitioning above, the same global count may be distributed so that each local view contains only weak evidence for that key. Conversely, non-heavy keys may create strong local signals without crossing the global threshold. These workloads therefore test whether the certification layer can recover deterministic global conclusions from fragmented local telemetry, rather than from locally obvious heavy hitters.
+The objective directly targets the two mechanisms that make coordinator-side inference difficult. First, a global heavy hitter can be made hard to certify by spreading its mass so that many partitions contain sub-threshold fragments. Second, globally non-heavy keys can be made misleading by concentrating enough mass on selected partitions to become locally salient without crossing the global heavy-hitter threshold. The resulting windows therefore contain both hidden heavy-hitter evidence and distracting local evidence.
 
-The deterministic guarantees in Sections~\ref{sec:ss-prelim}--\ref{sec:deterministic} do not depend on this construction. They apply to any admissible partitioning, including random, balanced, imbalanced, or stress-partitioned windows. The transform is used only to generate synthetic evaluation cases in which the hidden non-reporter mass term is operationally significant.
+The MILP is used only as a data-generation tool. The deterministic guarantees in Sections~\ref{sec:ss-prelim}--\ref{sec:deterministic} do not depend on this construction. They apply to any admissible partitioning, including random, balanced, imbalanced, heuristic stress-partitioned, or MILP-generated windows. The transform is used only to generate synthetic evaluation cases in which the hidden non-reporter mass and misleading-local-evidence terms are operationally significant.
+
+\subsection{Persistent-Locality Partitioning}
+\label{app:persistent-locality}
+
+Persistent-locality partitioning models stable substream communities. Unlike
+the MILP transform, it does not optimize an adversarial objective. Instead, it
+assigns each key a deterministic affinity profile over partitions and reuses
+that profile in every window. Consequently, a key may remain locally important
+to the same region, tenant, link, or shard even while its global count evolves.
+
+Each key \(k\) is assigned, by a stable hash of the generator seed and key
+identifier, to one of four locality classes:
+\[
+\mathsf{global},\qquad
+\mathsf{regional},\qquad
+\mathsf{local},\qquad
+\mathsf{background}.
+\]
+The configured fractions \(g,r,\ell\) determine the first three class
+probabilities; any remaining probability is assigned to the background
+class. Regional and local keys receive deterministic home sets
+\(H(k)\subseteq[m]\), containing configurable fractions of the partitions.
+Global and background keys use all partitions as their home set.
+
+Let \(s_k\in[0,1]\) be the affinity strength of key \(k\)'s class. Before
+normalization and optional bounded jitter, its partition weight is
+\[
+w_i(k)
+=
+\frac{1-s_k}{m}
++
+\mathbf 1[i\in H(k)]\frac{s_k}{|H(k)|}.
+\]
+Thus \(s_k=0\) gives uniform placement, whereas larger values place more mass
+on the stable home set without excluding other partitions. A small
+deterministic multiplicative jitter can break otherwise identical profiles.
+
+The implementation may first reserve a fraction \(u\in[0,1]\) of each key's
+count as a uniform floor. For global count \(f^t(k)\), it distributes
+\(\operatorname{round}(u f^t(k))\) approximately uniformly and allocates the
+remaining count according to the normalized affinity weights. Integer
+allocation uses a deterministic largest-remainder procedure, yielding local
+counts satisfying
+\[
+\sum_{i=1}^{m} f_i^t(k)=f^t(k)
+\qquad\forall k,t.
+\]
+
+The key's class, home set, affinity strength, and jitter seed depend on
+\((k,\text{seed})\), but not on the window index. This is the source of
+temporal persistence: only \(f^t(k)\) changes between windows, while the
+relative geography of that mass remains stable. The construction therefore
+preserves every generated global distribution exactly and introduces no
+assumption that partition-local streams are independent or randomly routed.
+It is used as a synthetic model of workloads with durable spatial affinity,
+such as geographically localized topics, tenant-to-shard mappings, recurring
+network prefixes, and stable service or cache communities.
 
 
 

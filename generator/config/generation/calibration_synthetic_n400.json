@@ -1,0 +1,21 @@
+{
+  "seed": 4242,
+  "window_size": 60000,
+  "num_keys": 15000,
+  "n": 400,
+  "m": 100,
+  "output_dir": "generated",
+  "stream_file": "stream_calibration_synthetic_n400.pkl.gz",
+  "summary_file": "summary_calibration_synthetic_n400.pkl.gz",
+  "stream_json_file": "stream_calibration_synthetic_n400.json.gz",
+  "plot_format": "png",
+  "plot_distr": true,
+  "plot_skew": true,
+  "hot_key_drift_pct": 35,
+  "max_rel_freq_delta_pct": 25,
+  "new_key_pct": 12,
+  "newborn_hot_birth_prob": 0.04,
+  "max_hot_newborn_frac": 0.08,
+  "save_windows_separately": false,
+  "expand_streams": true
+}

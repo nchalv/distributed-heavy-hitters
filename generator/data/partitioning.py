@@ -379,12 +379,61 @@ def assign_partitions(
     max_partition_mass_frac: float | None = None,
     local_detection_threshold_scale: float = 1.0,
     hh_overflow_spread_power: float = 1.0,
+    frontier_min_ratio: float = 0.80,
+    frontier_max_ratio: float = 1.20,
+    frontier_reporter_frac: float = 0.08,
+    frontier_reporter_min: int = 4,
+    frontier_reporter_max: int = 12,
+    frontier_reporter_weight_jitter: float = 0.20,
+    adv_hh_local_cap_scale: float = 0.8,
+    adv_hh_overflow_cap_scale: float = 2.5,
+    adv_nonhh_min_ratio: float = 0.65,
+    adv_nonhh_max_ratio: float = 0.995,
+    adv_nonhh_count_ratio: float = 4.0,
+    adv_nonhh_min_reporters: int = 4,
+    adv_nonhh_max_reporters: int = 16,
+    adv_key_max_fraction: float = 0.25,
+    milp_target_max_keys: int = 80,
+    milp_nonhh_min_ratio: float = 0.65,
+    milp_nonhh_max_ratio: float = 0.995,
+    milp_nonhh_count_ratio: float = 2.0,
+    milp_key_max_fraction: float = 0.25,
+    milp_hidden_weight: float = 1.0,
+    milp_mislead_weight: float = 1.0,
+    milp_time_limit_sec: float = 120.0,
+    milp_mip_rel_gap: float = 0.0,
+    milp_target_key_fraction: float = 0.0,
+    milp_target_min_keys: int = 1,
+    milp_hh_target_fraction: float = 0.5,
+    milp_intermediate_scale: float = 0.5,
+    milp_print_diagnostics: bool = False,
+    locality_global_fraction: float = 0.15,
+    locality_regional_fraction: float = 0.35,
+    locality_local_fraction: float = 0.35,
+    locality_regional_home_fraction: float = 0.20,
+    locality_local_home_fraction: float = 0.04,
+    locality_global_strength: float = 0.10,
+    locality_regional_strength: float = 0.75,
+    locality_local_strength: float = 0.90,
+    locality_background_strength: float = 0.00,
+    locality_uniform_floor_fraction: float = 0.0,
+    locality_weight_jitter: float = 0.05,
+    pa_hh_spread_fraction: float = 0.75,
+    pa_hh_local_cap_scale: float = 0.85,
+    pa_nonhh_min_ratio: float = 0.65,
+    pa_nonhh_max_ratio: float = 0.995,
+    pa_nonhh_home_fraction: float = 0.05,
+    pa_nonhh_home_mass_frac: float = 0.90,
+    pa_background_policy: str = "persistent_locality",
 ) -> Dict[int, Dict[Any, int]]:
     """
     Partition keys across partitions using the selected policy.
 
     policy="round_robin": simple even split of each key across partitions.
     policy="synthetic_mixture": per-key stochastic mix (uniform / normal / skewed).
+    policy="persistent_locality": stable per-key affinity profiles over partitions.
+    policy="persistent_ambiguity_adversary": stable profiles chosen to produce
+      temporally coherent certificate ambiguity.
     policy="imbalance": rarity-aware skewing based on top_n threshold and imbalance knob.
     """
     if policy == "round_robin":
@@ -405,6 +454,52 @@ def assign_partitions(
             skew_mass_frac_range=skew_mass_frac_range,
             skew_subset_frac_range=skew_subset_frac_range,
             rest_subset_frac_range=rest_subset_frac_range,
+        )
+    if policy in {"persistent_locality", "persistent_affinity", "locality"}:
+        return _assign_partitions_persistent_locality(
+            freq_dist=freq_dist,
+            num_partitions=num_partitions,
+            seed=seed,
+            global_fraction=locality_global_fraction,
+            regional_fraction=locality_regional_fraction,
+            local_fraction=locality_local_fraction,
+            regional_home_fraction=locality_regional_home_fraction,
+            local_home_fraction=locality_local_home_fraction,
+            global_strength=locality_global_strength,
+            regional_strength=locality_regional_strength,
+            local_strength=locality_local_strength,
+            background_strength=locality_background_strength,
+            uniform_floor_fraction=locality_uniform_floor_fraction,
+            weight_jitter=locality_weight_jitter,
+        )
+    if policy in {
+        "persistent_ambiguity_adversary",
+        "persistent_locality_adversary",
+        "persistent_ambiguity",
+    }:
+        return _assign_partitions_persistent_ambiguity_adversary(
+            freq_dist=freq_dist,
+            num_partitions=num_partitions,
+            seed=seed,
+            top_n=top_n,
+            hh_spread_fraction=pa_hh_spread_fraction,
+            hh_local_cap_scale=pa_hh_local_cap_scale,
+            nonhh_min_ratio=pa_nonhh_min_ratio,
+            nonhh_max_ratio=pa_nonhh_max_ratio,
+            nonhh_home_fraction=pa_nonhh_home_fraction,
+            nonhh_home_mass_frac=pa_nonhh_home_mass_frac,
+            background_policy=pa_background_policy,
+            locality_global_fraction=locality_global_fraction,
+            locality_regional_fraction=locality_regional_fraction,
+            locality_local_fraction=locality_local_fraction,
+            locality_regional_home_fraction=locality_regional_home_fraction,
+            locality_local_home_fraction=locality_local_home_fraction,
+            locality_global_strength=locality_global_strength,
+            locality_regional_strength=locality_regional_strength,
+            locality_local_strength=locality_local_strength,
+            locality_background_strength=locality_background_strength,
+            locality_uniform_floor_fraction=locality_uniform_floor_fraction,
+            locality_weight_jitter=locality_weight_jitter,
         )
     if policy == "imbalance":
         return _assign_partitions_imbalance(
@@ -470,7 +565,882 @@ def assign_partitions(
             local_detection_threshold_scale=local_detection_threshold_scale,
             hh_overflow_spread_power=hh_overflow_spread_power,
         )
+    if policy in {"certificate_stress", "cert_ambiguity", "ambiguity_stress"}:
+        return _assign_partitions_certificate_stress(
+            freq_dist=freq_dist,
+            num_partitions=num_partitions,
+            seed=seed,
+            window_id=window_id,
+            top_n=top_n,
+            frontier_min_ratio=frontier_min_ratio,
+            frontier_max_ratio=frontier_max_ratio,
+            frontier_reporter_frac=frontier_reporter_frac,
+            frontier_reporter_min=frontier_reporter_min,
+            frontier_reporter_max=frontier_reporter_max,
+            frontier_reporter_weight_jitter=frontier_reporter_weight_jitter,
+        )
+    if policy in {"constrained_certificate_adversary", "certificate_adversary", "cert_adversary"}:
+        return _assign_partitions_constrained_certificate_adversary(
+            freq_dist=freq_dist,
+            num_partitions=num_partitions,
+            seed=seed,
+            window_id=window_id,
+            top_n=top_n,
+            hh_local_cap_scale=adv_hh_local_cap_scale,
+            hh_overflow_cap_scale=adv_hh_overflow_cap_scale,
+            nonhh_min_ratio=adv_nonhh_min_ratio,
+            nonhh_max_ratio=adv_nonhh_max_ratio,
+            nonhh_count_ratio=adv_nonhh_count_ratio,
+            nonhh_min_reporters=adv_nonhh_min_reporters,
+            nonhh_max_reporters=adv_nonhh_max_reporters,
+            key_max_fraction=adv_key_max_fraction,
+        )
+    if policy in {
+        "milp_certificate_adversary",
+        "certificate_milp_adversary",
+        "milp_adversary",
+        "milp_certificate_adversary_intermediate",
+    }:
+        difficulty_scale = (
+            max(0.0, min(1.0, float(milp_intermediate_scale)))
+            if policy == "milp_certificate_adversary_intermediate"
+            else 1.0
+        )
+        return _assign_partitions_milp_certificate_adversary(
+            freq_dist=freq_dist,
+            num_partitions=num_partitions,
+            seed=seed,
+            window_id=window_id,
+            top_n=top_n,
+            target_max_keys=max(1, int(round(milp_target_max_keys * difficulty_scale))),
+            nonhh_min_ratio=milp_nonhh_min_ratio,
+            nonhh_max_ratio=milp_nonhh_max_ratio,
+            nonhh_count_ratio=milp_nonhh_count_ratio,
+            key_max_fraction=milp_key_max_fraction,
+            hidden_weight=milp_hidden_weight,
+            mislead_weight=milp_mislead_weight,
+            time_limit_sec=milp_time_limit_sec,
+            mip_rel_gap=milp_mip_rel_gap,
+            target_key_fraction=milp_target_key_fraction * difficulty_scale,
+            target_min_keys=max(1, int(round(milp_target_min_keys * difficulty_scale))),
+            hh_target_fraction=milp_hh_target_fraction,
+            print_diagnostics=milp_print_diagnostics,
+        )
     raise ValueError(f"Unknown partitioning policy: {policy}")
+
+
+def _assign_partitions_persistent_locality(
+    freq_dist: Dict[Any, int],
+    num_partitions: int,
+    *,
+    seed: int | None = 0,
+    global_fraction: float = 0.15,
+    regional_fraction: float = 0.35,
+    local_fraction: float = 0.35,
+    regional_home_fraction: float = 0.20,
+    local_home_fraction: float = 0.04,
+    global_strength: float = 0.10,
+    regional_strength: float = 0.75,
+    local_strength: float = 0.90,
+    background_strength: float = 0.00,
+    uniform_floor_fraction: float = 0.0,
+    weight_jitter: float = 0.05,
+) -> Dict[int, Dict[Any, int]]:
+    """
+    Stable locality model for persistent substream communities.
+
+    Each key receives a deterministic locality class and home-partition set
+    based only on the seed and key. Every window then splits the key's current
+    global count through that same affinity profile, so local hot spots persist
+    over time while global key frequencies may evolve. A configurable uniform
+    floor keeps local substreams diverse enough for q=n not to become exact.
+    """
+    if num_partitions <= 0:
+        raise ValueError("num_partitions must be > 0")
+
+    partitioned: Dict[int, Dict[Any, int]] = {p: {} for p in range(num_partitions)}
+    parts = list(range(num_partitions))
+    seed_tag = 0 if seed is None else int(seed)
+
+    g_frac = max(0.0, float(global_fraction))
+    r_frac = max(0.0, float(regional_fraction))
+    l_frac = max(0.0, float(local_fraction))
+    total = g_frac + r_frac + l_frac
+    if total > 1.0:
+        g_frac /= total
+        r_frac /= total
+        l_frac /= total
+
+    def clamp01(value: float) -> float:
+        return max(0.0, min(1.0, float(value)))
+
+    uniform_floor = clamp01(uniform_floor_fraction)
+
+    def choose_profile(k: Any) -> tuple[str, List[int], float]:
+        rng = random.Random(_stable_u64(f"{seed_tag}|PERSIST|{k}"))
+        roll = rng.random()
+        if roll < g_frac:
+            kind = "global"
+            home_count = num_partitions
+            strength = global_strength
+        elif roll < g_frac + r_frac:
+            kind = "regional"
+            home_count = max(1, min(num_partitions, int(round(regional_home_fraction * num_partitions))))
+            strength = regional_strength
+        elif roll < g_frac + r_frac + l_frac:
+            kind = "local"
+            home_count = max(1, min(num_partitions, int(round(local_home_fraction * num_partitions))))
+            strength = local_strength
+        else:
+            kind = "background"
+            home_count = num_partitions
+            strength = background_strength
+
+        if home_count >= num_partitions:
+            homes = parts
+        else:
+            homes = sorted(rng.sample(parts, home_count))
+        return kind, homes, clamp01(strength)
+
+    jitter = max(0.0, float(weight_jitter))
+    for k, count_raw in freq_dist.items():
+        count = int(count_raw)
+        if count <= 0:
+            continue
+        _, homes, strength = choose_profile(k)
+        home_set = set(homes)
+        home_count = max(1, len(homes))
+        rng = random.Random(_stable_u64(f"{seed_tag}|PERSIST|WEIGHTS|{k}"))
+        floor_count = int(round(count * uniform_floor))
+        floor_count = max(0, min(count, floor_count))
+        if floor_count > 0:
+            floor_parts = parts[:]
+            rng.shuffle(floor_parts)
+            floor_alloc = _allocate_integer_mass(floor_count, floor_parts, [1.0] * len(floor_parts))
+            for p, take in floor_alloc.items():
+                partitioned[p][k] = partitioned[p].get(k, 0) + int(take)
+
+        residual_count = count - floor_count
+        if residual_count <= 0:
+            continue
+
+        weights: List[float] = []
+        for p in parts:
+            base = (1.0 - strength) / float(num_partitions)
+            if p in home_set:
+                base += strength / float(home_count)
+            if jitter > 0.0:
+                base *= rng.uniform(max(0.0, 1.0 - jitter), 1.0 + jitter)
+            weights.append(max(0.0, base))
+        alloc = _allocate_integer_mass(residual_count, parts, weights)
+        for p, take in alloc.items():
+            partitioned[p][k] = partitioned[p].get(k, 0) + int(take)
+
+    return partitioned
+
+
+def _assign_partitions_persistent_ambiguity_adversary(
+    freq_dist: Dict[Any, int],
+    num_partitions: int,
+    *,
+    seed: int | None = 0,
+    top_n: int | None = None,
+    hh_spread_fraction: float = 0.75,
+    hh_local_cap_scale: float = 0.85,
+    nonhh_min_ratio: float = 0.65,
+    nonhh_max_ratio: float = 0.995,
+    nonhh_home_fraction: float = 0.05,
+    nonhh_home_mass_frac: float = 0.90,
+    background_policy: str = "persistent_locality",
+    locality_global_fraction: float = 0.15,
+    locality_regional_fraction: float = 0.35,
+    locality_local_fraction: float = 0.35,
+    locality_regional_home_fraction: float = 0.20,
+    locality_local_home_fraction: float = 0.04,
+    locality_global_strength: float = 0.10,
+    locality_regional_strength: float = 0.75,
+    locality_local_strength: float = 0.90,
+    locality_background_strength: float = 0.00,
+    locality_uniform_floor_fraction: float = 0.0,
+    locality_weight_jitter: float = 0.05,
+) -> Dict[int, Dict[Any, int]]:
+    """
+    Persistent adversarial locality for ambiguity-aware sizing experiments.
+
+    The policy keeps a deterministic per-key partition signature across windows.
+    Near-threshold non-HHs are concentrated into stable local homes, creating
+    persistent local distractors and inflated local substream masses. Global HHs
+    are then spread over stable broad homes, preferring the inflated partitions
+    and capping each local contribution below a fraction of that partition's
+    current HH threshold whenever possible. Remaining background keys use the
+    benign persistent-locality model.
+    """
+    if num_partitions <= 0:
+        raise ValueError("num_partitions must be > 0")
+
+    seed_tag = 0 if seed is None else int(seed)
+    hh_n = max(1, int(top_n or 1))
+    total_mass = sum(max(0, int(c)) for c in freq_dist.values())
+    threshold = float(total_mass) / float(hh_n) if hh_n > 0 else float("inf")
+    parts = list(range(num_partitions))
+
+    partitioned: Dict[int, Dict[Any, int]] = {p: {} for p in parts}
+    partition_sizes = [0 for _ in parts]
+
+    items = [(k, int(c)) for k, c in freq_dist.items() if int(c) > 0]
+    heavy = [(k, c) for k, c in items if c > threshold]
+    near_nonhh = [
+        (k, c)
+        for k, c in items
+        if c <= threshold and c >= nonhh_min_ratio * threshold and c <= nonhh_max_ratio * threshold
+    ]
+    special = {k for k, _ in heavy} | {k for k, _ in near_nonhh}
+    background = {k: c for k, c in items if k not in special}
+
+    def stable_parts(k: Any, tag: str, count: int) -> List[int]:
+        count = max(1, min(num_partitions, int(count)))
+        rng = random.Random(_stable_u64(f"{seed_tag}|PERSIST_ADV|{tag}|{k}"))
+        if count >= num_partitions:
+            return parts[:]
+        return sorted(rng.sample(parts, count))
+
+    def add_alloc(k: Any, alloc: Dict[int, int]) -> None:
+        for p, take in alloc.items():
+            if take <= 0:
+                continue
+            partitioned[p][k] = partitioned[p].get(k, 0) + int(take)
+            partition_sizes[p] += int(take)
+
+    # 1. Background keys preserve stable locality, so the partition geography is
+    # not rebuilt independently in each window.
+    if background:
+        bg = _assign_partitions_persistent_locality(
+            background,
+            num_partitions,
+            seed=seed,
+            global_fraction=locality_global_fraction,
+            regional_fraction=locality_regional_fraction,
+            local_fraction=locality_local_fraction,
+            regional_home_fraction=locality_regional_home_fraction,
+            local_home_fraction=locality_local_home_fraction,
+            global_strength=locality_global_strength,
+            regional_strength=locality_regional_strength,
+            local_strength=locality_local_strength,
+            background_strength=locality_background_strength,
+            uniform_floor_fraction=locality_uniform_floor_fraction,
+            weight_jitter=locality_weight_jitter,
+        )
+        for p, counts in bg.items():
+            for k, take in counts.items():
+                add_alloc(k, {p: int(take)})
+
+    # 2. Stable local distractors: near-HH non-HHs become local hot keys in the
+    # same home partitions across windows.
+    home_count_nonhh = max(1, int(round(max(0.0, nonhh_home_fraction) * num_partitions)))
+    home_mass = max(0.0, min(1.0, float(nonhh_home_mass_frac)))
+    for k, c in sorted(near_nonhh, key=lambda x: (-x[1], str(x[0]))):
+        homes = stable_parts(k, "NONHH_HOME", home_count_nonhh)
+        home_total = int(round(c * home_mass))
+        home_total = max(0, min(c, home_total))
+        rest_total = c - home_total
+        alloc: Dict[int, int] = {}
+        rng = random.Random(_stable_u64(f"{seed_tag}|PERSIST_ADV|NONHH_W|{k}"))
+        home_weights = [rng.uniform(0.8, 1.2) for _ in homes]
+        for p, take in _allocate_integer_mass(home_total, homes, home_weights).items():
+            alloc[p] = alloc.get(p, 0) + take
+        if rest_total > 0:
+            rest_weights = [1.0 for _ in parts]
+            for p, take in _allocate_integer_mass(rest_total, parts, rest_weights).items():
+                alloc[p] = alloc.get(p, 0) + take
+        add_alloc(k, alloc)
+
+    # 3. Stable broad HH hiding: put HHs preferentially on persistent broad homes
+    # whose local masses were inflated by background/distractor traffic.
+    spread_count = max(1, int(round(max(0.0, min(1.0, hh_spread_fraction)) * num_partitions)))
+    cap_scale = max(0.0, float(hh_local_cap_scale))
+    for k, c in sorted(heavy, key=lambda x: (-x[1], str(x[0]))):
+        homes = stable_parts(k, "HH_SPREAD", spread_count)
+        # Prefer partitions with persistent background/distractor mass. The
+        # stable jitter prevents perfect ties from producing identical profiles.
+        rng = random.Random(_stable_u64(f"{seed_tag}|PERSIST_ADV|HH_W|{k}"))
+        weights = [
+            max(1.0, float(partition_sizes[p])) * rng.uniform(0.9, 1.1)
+            for p in homes
+        ]
+        caps = [
+            max(1, int(math.floor(cap_scale * max(1.0, float(partition_sizes[p])) / float(hh_n))))
+            for p in homes
+        ]
+        alloc = _allocate_integer_mass_with_caps(c, homes, weights, caps, relax_caps=True)
+        add_alloc(k, alloc)
+
+    return partitioned
+
+
+def _assign_partitions_milp_certificate_adversary(
+    freq_dist: Dict[Any, int],
+    num_partitions: int,
+    *,
+    seed: int | None = 0,
+    window_id: int | None = None,
+    top_n: int | None = None,
+    target_max_keys: int = 80,
+    nonhh_min_ratio: float = 0.65,
+    nonhh_max_ratio: float = 0.995,
+    nonhh_count_ratio: float = 2.0,
+    key_max_fraction: float = 0.25,
+    hidden_weight: float = 1.0,
+    mislead_weight: float = 1.0,
+    time_limit_sec: float = 120.0,
+    mip_rel_gap: float = 0.0,
+    target_key_fraction: float = 0.0,
+    target_min_keys: int = 1,
+    hh_target_fraction: float = 0.5,
+    print_diagnostics: bool = False,
+) -> Dict[int, Dict[Any, int]]:
+    """
+    MILP-backed adversarial placement under a certificate proxy.
+
+    The MILP optimizes target keys only: true HHs and near-threshold non-HHs.
+    Remaining keys are used as deterministic filler to meet exact partition
+    masses. The proxy rewards hidden HH mass below local detection thresholds
+    and locally salient non-HH distractors.
+    """
+    try:
+        import numpy as np
+        from scipy.optimize import Bounds, LinearConstraint, milp
+        from scipy.sparse import lil_matrix
+    except Exception as exc:  # pragma: no cover - depends on runtime deps
+        raise RuntimeError("milp_certificate_adversary requires scipy.optimize.milp") from exc
+
+    if num_partitions <= 0:
+        raise ValueError("num_partitions must be > 0")
+
+    partitioned: Dict[int, Dict[Any, int]] = {p: {} for p in range(num_partitions)}
+    items = [(k, int(v)) for k, v in freq_dist.items() if int(v) > 0]
+    if not items:
+        return partitioned
+
+    total_mass = sum(v for _, v in items)
+    if total_mass <= 0:
+        return partitioned
+
+    window_tag = 0 if window_id is None else int(window_id)
+    hh_n = int(top_n) if top_n is not None and int(top_n) > 0 else max(1, num_partitions)
+    threshold_count = total_mass / float(hh_n)
+    parts = list(range(num_partitions))
+    target_map = _allocate_integer_mass(total_mass, parts, [1.0] * num_partitions)
+    target_mass = [int(target_map.get(p, 0)) for p in parts]
+    local_threshold = [int(math.floor(target_mass[p] / float(hh_n)) + 1) for p in parts]
+
+    items_sorted = sorted(items, key=lambda kv: (-kv[1], str(kv[0])))
+    heavy = [(k, c) for k, c in items_sorted if float(c) > threshold_count]
+    non_heavy = [(k, c) for k, c in items_sorted if float(c) <= threshold_count]
+
+    configured_max_keys = max(1, int(target_max_keys))
+    adaptive_target_keys = int(math.ceil(max(0.0, float(target_key_fraction)) * float(hh_n)))
+    max_keys = max(configured_max_keys, max(1, int(target_min_keys)), adaptive_target_keys)
+    max_keys = min(max_keys, len(items_sorted))
+    heavy_sorted = sorted(heavy, key=lambda kv: (abs(float(kv[1]) - threshold_count), -kv[1], str(kv[0])))
+    d_min = max(0.0, float(nonhh_min_ratio)) * threshold_count
+    d_max = max(d_min, float(nonhh_max_ratio) * threshold_count)
+    nonhh_pool = [(k, c) for k, c in non_heavy if d_min <= float(c) <= d_max]
+    nonhh_pool.sort(key=lambda kv: (abs(float(kv[1]) - threshold_count), -kv[1], str(kv[0])))
+
+    hh_budget = int(round(max_keys * max(0.0, min(1.0, float(hh_target_fraction)))))
+    if heavy_sorted and hh_budget <= 0:
+        hh_budget = 1
+    hh_target_count = min(len(heavy_sorted), hh_budget)
+    selected_hh = heavy_sorted[:hh_target_count]
+    nonhh_budget = max(0, max_keys - len(selected_hh))
+    if nonhh_count_ratio > 0:
+        ratio_base = max(len(selected_hh), nonhh_budget)
+        nonhh_budget = min(nonhh_budget, int(round(float(nonhh_count_ratio) * max(1, ratio_base))))
+    nonhh_target_count = min(len(nonhh_pool), nonhh_budget)
+    selected_nonhh = nonhh_pool[:nonhh_target_count]
+    target_items = selected_hh + selected_nonhh
+    if print_diagnostics:
+        warnings = []
+        if not heavy_sorted:
+            warnings.append("no_global_hh")
+        if not nonhh_pool:
+            warnings.append("no_near_nonhh")
+        if max(local_threshold) <= 2:
+            warnings.append("local_threshold_le_2")
+        print(
+            f"[window_id={window_tag}] MILP targets: "
+            f"n={hh_n}, N={total_mass}, threshold={threshold_count:.3f}, "
+            f"global_hh={len(heavy_sorted)}, near_nonhh={len(nonhh_pool)}, "
+            f"target_budget={max_keys}, selected_hh={len(selected_hh)}, "
+            f"selected_nonhh={len(selected_nonhh)}, local_threshold_min={min(local_threshold)}, "
+            f"local_threshold_max={max(local_threshold)}, "
+            f"warnings={','.join(warnings) if warnings else 'none'}"
+        )
+    if not target_items:
+        if print_diagnostics:
+            print(f"[window_id={window_tag}] MILP targets: no eligible targets; falling back to round_robin")
+        return _assign_partitions_round_robin(freq_dist, num_partitions, seed=seed, window_id=window_id)
+
+    target_keys = [k for k, _ in target_items]
+    target_counts = [int(c) for _, c in target_items]
+    target_key_set = set(target_keys)
+    is_heavy = [k in {hk for hk, _ in selected_hh} for k in target_keys]
+    K = len(target_items)
+    P = num_partitions
+
+    x_off = 0
+    z_off = x_off + K * P
+    u_off = z_off + K * P
+    n_vars = u_off + K * P
+
+    def x_idx(t: int, p: int) -> int:
+        return x_off + t * P + p
+
+    def z_idx(t: int, p: int) -> int:
+        return z_off + t * P + p
+
+    def u_idx(t: int, p: int) -> int:
+        return u_off + t * P + p
+
+    c_vec = np.zeros(n_vars)
+    lb = np.zeros(n_vars)
+    ub = np.full(n_vars, np.inf)
+    integrality = np.ones(n_vars)
+
+    key_frac = max(1e-9, min(1.0, float(key_max_fraction)))
+    for t, count in enumerate(target_counts):
+        per_key_cap = max(1, int(math.ceil(key_frac * count)))
+        for p in parts:
+            ub[x_idx(t, p)] = min(per_key_cap, count, target_mass[p])
+            ub[z_idx(t, p)] = 1
+            ub[u_idx(t, p)] = max(0, local_threshold[p] - 1)
+            if is_heavy[t]:
+                c_vec[u_idx(t, p)] = -float(hidden_weight)
+            else:
+                c_vec[z_idx(t, p)] = -float(mislead_weight)
+
+    rows = []
+    lows = []
+    highs = []
+
+    # Exact target-key mass preservation.
+    for t, count in enumerate(target_counts):
+        row = {}
+        for p in parts:
+            row[x_idx(t, p)] = 1.0
+        rows.append(row)
+        lows.append(float(count))
+        highs.append(float(count))
+
+    # Target keys may not exceed partition target masses; filler uses the rest.
+    for p in parts:
+        row = {}
+        for t in range(K):
+            row[x_idx(t, p)] = 1.0
+        rows.append(row)
+        lows.append(0.0)
+        highs.append(float(target_mass[p]))
+
+    for t, count in enumerate(target_counts):
+        for p in parts:
+            T = local_threshold[p]
+            # z=1 -> x >= T
+            rows.append({x_idx(t, p): 1.0, z_idx(t, p): -float(T)})
+            lows.append(0.0)
+            highs.append(np.inf)
+            # z=0 -> x <= T-1
+            rows.append({x_idx(t, p): 1.0, z_idx(t, p): -float(count)})
+            lows.append(-np.inf)
+            highs.append(float(T - 1))
+            # u <= x
+            rows.append({u_idx(t, p): 1.0, x_idx(t, p): -1.0})
+            lows.append(-np.inf)
+            highs.append(0.0)
+            # u <= (T-1)(1-z)
+            rows.append({u_idx(t, p): 1.0, z_idx(t, p): float(T - 1)})
+            lows.append(-np.inf)
+            highs.append(float(T - 1))
+
+    A = lil_matrix((len(rows), n_vars), dtype=float)
+    for r, row in enumerate(rows):
+        for col, val in row.items():
+            A[r, col] = val
+
+    constraints = LinearConstraint(A.tocsr(), np.array(lows), np.array(highs))
+    options = {
+        "time_limit": max(1.0, float(time_limit_sec)),
+        "mip_rel_gap": max(0.0, float(mip_rel_gap)),
+        "disp": False,
+    }
+    result = milp(
+        c=c_vec,
+        integrality=integrality,
+        bounds=Bounds(lb, ub),
+        constraints=constraints,
+        options=options,
+    )
+    if result.x is None:
+        raise RuntimeError(f"MILP adversarial partitioning failed: {result.message}")
+
+    sol = result.x
+    rem_cap = {p: target_mass[p] for p in parts}
+
+    def place(k: Any, p: int, take: int) -> None:
+        if take <= 0:
+            return
+        if rem_cap[p] < take:
+            raise ValueError(f"MILP solution exceeded partition capacity {p}")
+        partitioned[p][k] = partitioned[p].get(k, 0) + take
+        rem_cap[p] -= take
+
+    for t, k in enumerate(target_keys):
+        assigned = 0
+        shares = []
+        for p in parts:
+            val = int(round(float(sol[x_idx(t, p)])))
+            if val > 0:
+                shares.append((p, val))
+                assigned += val
+        diff = target_counts[t] - assigned
+        if diff != 0:
+            shares.sort(key=lambda pv: (rem_cap[pv[0]], -_stable_u64(f"{seed}|MILP|FIX|{window_tag}|{k}|{pv[0]}")), reverse=True)
+            idx = 0
+            while diff != 0 and shares:
+                p, val = shares[idx % len(shares)]
+                if diff > 0 and rem_cap[p] > 0:
+                    shares[idx % len(shares)] = (p, val + 1)
+                    diff -= 1
+                elif diff < 0 and val > 0:
+                    shares[idx % len(shares)] = (p, val - 1)
+                    diff += 1
+                idx += 1
+                if idx > 10 * (len(shares) + abs(diff) + 1):
+                    break
+        if sum(v for _, v in shares) != target_counts[t]:
+            raise ValueError(f"failed to round MILP solution for key {k}")
+        for p, take in shares:
+            place(k, p, take)
+
+    def stable_fill_order(k: Any) -> List[int]:
+        return sorted(
+            parts,
+            key=lambda p: (rem_cap[p], -_stable_u64(f"{seed}|MILP|FILL|{window_tag}|{k}|{p}")),
+            reverse=True,
+        )
+
+    for k, count in items_sorted:
+        if k in target_key_set:
+            continue
+        rem = int(count)
+        while rem > 0:
+            candidates = [p for p in stable_fill_order(k) if rem_cap[p] > 0]
+            if not candidates:
+                break
+            total = min(rem, sum(rem_cap[p] for p in candidates))
+            alloc = _allocate_integer_mass_with_caps(
+                total,
+                candidates,
+                [float(rem_cap[p] + 1) for p in candidates],
+                [rem_cap[p] for p in candidates],
+                relax_caps=False,
+            )
+            if not alloc:
+                break
+            for p, take in alloc.items():
+                place(k, p, take)
+                rem -= take
+        if rem != 0:
+            raise ValueError(f"failed to place filler key {k}")
+
+    if any(v != 0 for v in rem_cap.values()):
+        raise ValueError("MILP adversarial partitioning left unfilled capacity")
+
+    if print_diagnostics:
+        selected_hh_set = {k for k, _ in selected_hh}
+        selected_nonhh_set = {k for k, _ in selected_nonhh}
+        hidden_hh_keys = 0
+        selected_hh_local_reporters = 0
+        promoted_nonhh_keys = 0
+        selected_nonhh_local_reporters = 0
+        all_nonhh_local_keys = set()
+
+        for k in selected_hh_set:
+            reporters = sum(1 for p in parts if partitioned[p].get(k, 0) >= local_threshold[p])
+            selected_hh_local_reporters += reporters
+            if reporters == 0:
+                hidden_hh_keys += 1
+
+        for k in selected_nonhh_set:
+            reporters = sum(1 for p in parts if partitioned[p].get(k, 0) >= local_threshold[p])
+            selected_nonhh_local_reporters += reporters
+            if reporters > 0:
+                promoted_nonhh_keys += 1
+
+        for k, c in non_heavy:
+            if any(partitioned[p].get(k, 0) >= local_threshold[p] for p in parts):
+                all_nonhh_local_keys.add(k)
+
+        print(
+            f"[window_id={window_tag}] MILP achieved: "
+            f"hidden_selected_hh_keys={hidden_hh_keys}/{len(selected_hh_set)}, "
+            f"selected_hh_local_reporters={selected_hh_local_reporters}, "
+            f"promoted_selected_nonhh_keys={promoted_nonhh_keys}/{len(selected_nonhh_set)}, "
+            f"selected_nonhh_local_reporters={selected_nonhh_local_reporters}, "
+            f"all_nonhh_local_hh_keys={len(all_nonhh_local_keys)}"
+        )
+
+    return partitioned
+
+
+
+def _assign_partitions_constrained_certificate_adversary(
+    freq_dist: Dict[Any, int],
+    num_partitions: int,
+    *,
+    seed: int | None = 0,
+    window_id: int | None = None,
+    top_n: int | None = None,
+    hh_local_cap_scale: float = 0.8,
+    hh_overflow_cap_scale: float = 2.5,
+    nonhh_min_ratio: float = 0.65,
+    nonhh_max_ratio: float = 0.995,
+    nonhh_count_ratio: float = 4.0,
+    nonhh_min_reporters: int = 4,
+    nonhh_max_reporters: int = 16,
+    key_max_fraction: float = 0.25,
+) -> Dict[int, Dict[Any, int]]:
+    """
+    Deterministic constrained adversary for certificate stress.
+
+    The policy combines hidden-HH spreading, concentrated non-HH distractors,
+    and balanced background saturation while preserving exact global key counts
+    and exact target partition masses.
+    """
+    if num_partitions <= 0:
+        raise ValueError("num_partitions must be > 0")
+
+    partitioned: Dict[int, Dict[Any, int]] = {p: {} for p in range(num_partitions)}
+    items = [(k, int(v)) for k, v in freq_dist.items() if int(v) > 0]
+    if not items:
+        return partitioned
+
+    total_mass = sum(v for _, v in items)
+    if total_mass <= 0:
+        return partitioned
+
+    window_tag = 0 if window_id is None else int(window_id)
+    hh_n = int(top_n) if top_n is not None and int(top_n) > 0 else max(1, num_partitions)
+    threshold_count = total_mass / float(hh_n)
+    parts = list(range(num_partitions))
+
+    target_map = _allocate_integer_mass(total_mass, parts, [1.0] * num_partitions)
+    target = [int(target_map.get(p, 0)) for p in parts]
+    rem_cap = {p: target[p] for p in parts}
+
+    def place(k: Any, alloc: Dict[int, int]) -> None:
+        for p, take in alloc.items():
+            take = int(take)
+            if take <= 0:
+                continue
+            if rem_cap[p] < take:
+                raise ValueError(f"partition capacity exceeded for partition {p}")
+            partitioned[p][k] = partitioned[p].get(k, 0) + take
+            rem_cap[p] -= take
+
+    def stable_part_order(label: str, key: Any, candidates: List[int]) -> List[int]:
+        return sorted(
+            candidates,
+            key=lambda p: (
+                rem_cap[p],
+                -_stable_u64(f"{seed}|CCA|{label}|{window_tag}|{key}|{p}"),
+            ),
+            reverse=True,
+        )
+
+    def allocate_on_parts(
+        k: Any,
+        amount: int,
+        candidates: List[int],
+        *,
+        label: str,
+        per_part_cap: int | None = None,
+    ) -> int:
+        if amount <= 0:
+            return 0
+        candidates = [p for p in stable_part_order(label, k, candidates) if rem_cap[p] > 0]
+        if not candidates:
+            return 0
+        caps = [rem_cap[p] for p in candidates]
+        if per_part_cap is not None:
+            cap = max(0, int(per_part_cap))
+            existing = [partitioned[p].get(k, 0) for p in candidates]
+            caps = [min(caps[i], max(0, cap - existing[i])) for i in range(len(candidates))]
+        active = [(p, c) for p, c in zip(candidates, caps) if c > 0]
+        if not active:
+            return 0
+        candidates = [p for p, _ in active]
+        caps = [c for _, c in active]
+        total = min(int(amount), sum(caps))
+        weights = [float(rem_cap[p] + 1) for p in candidates]
+        alloc = _allocate_integer_mass_with_caps(total, candidates, weights, caps, relax_caps=False)
+        place(k, alloc)
+        return sum(alloc.values())
+
+    items_sorted = sorted(items, key=lambda kv: (-kv[1], str(kv[0])))
+    heavy_items = [(k, c) for k, c in items_sorted if float(c) > threshold_count]
+    non_heavy_items = [(k, c) for k, c in items_sorted if float(c) <= threshold_count]
+    placed_keys: set[Any] = set()
+
+    # 1. True HHs: place as much mass as possible under local detection caps.
+    hidden_scale = max(0.0, float(hh_local_cap_scale))
+    overflow_scale = max(hidden_scale, float(hh_overflow_cap_scale))
+    key_frac = max(1e-9, min(1.0, float(key_max_fraction)))
+    for k, c in heavy_items:
+        hidden_cap = [max(0, int(math.floor(hidden_scale * target[p] / float(hh_n)))) for p in parts]
+        hidden_cap = [min(hidden_cap[p], int(math.ceil(key_frac * c))) for p in parts]
+        hidden = _allocate_integer_mass_with_caps(
+            c,
+            parts,
+            [float(rem_cap[p] + 1) for p in parts],
+            [min(rem_cap[p], hidden_cap[p]) for p in parts],
+            relax_caps=False,
+        )
+        place(k, hidden)
+        rem = c - sum(hidden.values())
+        if rem > 0:
+            overflow_cap = max(1, int(math.ceil(overflow_scale * (total_mass / num_partitions) / float(hh_n))))
+            rem -= allocate_on_parts(k, rem, parts, label="HH_OVERFLOW", per_part_cap=overflow_cap)
+        if rem > 0:
+            rem -= allocate_on_parts(k, rem, parts, label="HH_REMAINDER")
+        if rem != 0:
+            raise ValueError(f"failed to place all mass for heavy key {k}")
+        placed_keys.add(k)
+
+    # 2. Near-threshold non-HHs: concentrate into constrained local distractors.
+    d_min = max(0.0, float(nonhh_min_ratio)) * threshold_count
+    d_max = max(d_min, float(nonhh_max_ratio) * threshold_count)
+    d_pool = [(k, c) for k, c in non_heavy_items if d_min <= float(c) <= d_max]
+    d_pool.sort(key=lambda kv: (-kv[1], abs(float(kv[1]) - threshold_count), str(kv[0])))
+    target_d = int(round(max(0.0, float(nonhh_count_ratio)) * max(1, len(heavy_items))))
+    if target_d <= 0:
+        target_d = len(d_pool)
+    distractors = d_pool[: min(len(d_pool), target_d)]
+    min_reporters = max(1, min(num_partitions, int(nonhh_min_reporters), int(nonhh_max_reporters)))
+    max_reporters = max(min_reporters, min(num_partitions, int(nonhh_max_reporters)))
+
+    for k, c in distractors:
+        min_by_fraction = int(math.ceil(1.0 / key_frac))
+        r = max(min_reporters, min_by_fraction)
+        r = min(max_reporters, max(1, r))
+        chosen = stable_part_order("DISTR", k, [p for p in parts if rem_cap[p] > 0])[:r]
+        if not chosen:
+            chosen = [p for p in parts if rem_cap[p] > 0]
+        per_key_cap = max(1, int(math.ceil(key_frac * c)))
+        placed = allocate_on_parts(k, c, chosen, label="DISTR", per_part_cap=per_key_cap)
+        rem = c - placed
+        if rem > 0:
+            rem -= allocate_on_parts(k, rem, parts, label="DISTR_REMAINDER", per_part_cap=per_key_cap)
+        if rem > 0:
+            rem -= allocate_on_parts(k, rem, parts, label="DISTR_FALLBACK")
+        if rem != 0:
+            raise ValueError(f"failed to place all mass for distractor key {k}")
+        placed_keys.add(k)
+
+    # 3. Remaining keys: fill exact target capacities as a summary-saturating carpet.
+    for k, c in items_sorted:
+        if k in placed_keys:
+            continue
+        rem = int(c)
+        if rem <= 0:
+            continue
+        rem -= allocate_on_parts(k, rem, parts, label="BACKGROUND")
+        if rem != 0:
+            raise ValueError(f"failed to place all mass for background key {k}")
+
+    if any(v != 0 for v in rem_cap.values()):
+        raise ValueError("constrained certificate adversary left unfilled partition capacity")
+
+    return partitioned
+
+
+def _assign_partitions_certificate_stress(
+    freq_dist: Dict[Any, int],
+    num_partitions: int,
+    *,
+    seed: int | None = 0,
+    window_id: int | None = None,
+    top_n: int | None = None,
+    frontier_min_ratio: float = 0.80,
+    frontier_max_ratio: float = 1.20,
+    frontier_reporter_frac: float = 0.08,
+    frontier_reporter_min: int = 4,
+    frontier_reporter_max: int = 12,
+    frontier_reporter_weight_jitter: float = 0.20,
+) -> Dict[int, Dict[Any, int]]:
+    """
+    Stress the coordinator certificate, not just local heavy-hitter visibility.
+
+    Near-threshold keys are concentrated on a small, deterministic reporter set.
+    All other keys are spread as a background carpet. With bounded Space-Saving
+    summaries, the carpet raises non-reporter min counters while the frontier
+    keys still appear in a few workers, widening cert_lb/cert_ub around the
+    global threshold.
+    """
+    if num_partitions <= 0:
+        raise ValueError("num_partitions must be > 0")
+
+    partitioned: Dict[int, Dict[Any, int]] = {p: {} for p in range(num_partitions)}
+    items = [(k, int(v)) for k, v in freq_dist.items() if int(v) > 0]
+    if not items:
+        return partitioned
+
+    total_mass = sum(v for _, v in items)
+    if total_mass <= 0:
+        return partitioned
+
+    window_tag = 0 if window_id is None else int(window_id)
+    hh_n = int(top_n) if top_n is not None and int(top_n) > 0 else max(1, num_partitions)
+    threshold_count = total_mass / float(hh_n)
+    lo = max(0.0, float(frontier_min_ratio)) * threshold_count
+    hi = max(lo, float(frontier_max_ratio) * threshold_count)
+
+    frontier = [(k, c) for k, c in items if lo <= float(c) <= hi]
+    frontier_keys = {k for k, _ in frontier}
+    carpet = [(k, c) for k, c in items if k not in frontier_keys]
+
+    # Build the background first. This intentionally resembles round-robin
+    # because round-robin already generated larger min-counter ambiguity than
+    # the old hidden-HH construction.
+    for k, freq in carpet:
+        base = freq // num_partitions
+        rem = freq % num_partitions
+        start = _stable_u64(f"{seed}|CERT|CARPET|{window_tag}|{k}") % num_partitions
+        for offset in range(num_partitions):
+            share = base + (1 if offset < rem else 0)
+            if share <= 0:
+                continue
+            p = (start + offset) % num_partitions
+            partitioned[p][k] = partitioned[p].get(k, 0) + share
+
+    reporter_frac = max(0.0, min(1.0, float(frontier_reporter_frac)))
+    base_reporter_count = int(math.ceil(reporter_frac * num_partitions))
+    min_reporters = max(1, min(num_partitions, int(frontier_reporter_min)))
+    max_reporters = max(min_reporters, min(num_partitions, int(frontier_reporter_max)))
+    fixed_reporter_count = max(min_reporters, base_reporter_count)
+    fixed_reporter_count = min(max_reporters, fixed_reporter_count)
+    jitter = max(0.0, float(frontier_reporter_weight_jitter))
+    parts = list(range(num_partitions))
+
+    for k, freq in frontier:
+        krng = random if seed is None else random.Random(_stable_u64(f"{seed}|CERT|FRONTIER|{window_tag}|{k}"))
+        reporter_count = fixed_reporter_count
+        reporters = krng.sample(parts, reporter_count)
+        weights = [math.exp(krng.uniform(-jitter, jitter)) for _ in reporters]
+        alloc = _allocate_integer_mass(freq, reporters, weights)
+        for p, share in alloc.items():
+            partitioned[p][k] = partitioned[p].get(k, 0) + share
+
+    return partitioned
 
 
 def _assign_partitions_hh_hidden_optimal(

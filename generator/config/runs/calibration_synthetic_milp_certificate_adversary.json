@@ -1,0 +1,5 @@
+{
+  "generation": "../generation/calibration_synthetic_n200.json",
+  "scenario": "../scenarios/calibration_mixed_n200.json",
+  "partitioning": "../partitioning/milp_certificate_adversary_n200.json"
+}

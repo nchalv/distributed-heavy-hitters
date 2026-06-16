@@ -98,3 +98,9 @@ config if packet-expanded output is required.
   hitters below local thresholds while adding near-threshold distractors.
 - `hh_hidden_exact`: same hidden-heavy-hitter construction without distractor
   amplification.
+- `milp_certificate_adversary`: MILP stress construction that maximizes hidden
+  HH mass and locally salient non-HH distractors.
+- `milp_certificate_adversary_intermediate`: the same MILP construction with
+  its target-key budget scaled by `milp_intermediate_scale`.
+- `policy_schedule`: optional per-window phases, each with a `duration` and
+  `policy`, for workloads that transition between partitioning regimes.

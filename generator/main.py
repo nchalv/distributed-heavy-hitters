@@ -90,6 +90,49 @@ def _copy_or_write_config(config_dir, name, data, source_path):
             json.dump(data, f, indent=2)
 
 
+def _collect_scenario_n_values(scenario):
+    values = []
+
+    def add(path, value):
+        if value is not None:
+            values.append((path, int(value)))
+
+    for idx, step in enumerate(scenario or []):
+        prefix = f"scenario[{idx}]"
+        add(f"{prefix}.n", step.get("n"))
+        params = step.get("params", {})
+        if isinstance(params, dict):
+            add(f"{prefix}.params.n", params.get("n"))
+        transition = step.get("transition", {})
+        if isinstance(transition, dict):
+            add(f"{prefix}.transition.n", transition.get("n"))
+            from_params = transition.get("from_params", {})
+            if isinstance(from_params, dict):
+                add(f"{prefix}.transition.from_params.n", from_params.get("n"))
+    return values
+
+
+def _validate_topology_config(generation, scenario, partitioning_config, *, real_counts_path=None):
+    """Fail fast when composed generator configs disagree on the HH threshold."""
+    if "n" not in generation:
+        raise ValueError("generation config must define n")
+    n = int(generation["n"])
+    errors = []
+
+    if real_counts_path is None:
+        for path, value in _collect_scenario_n_values(scenario):
+            if value != n:
+                errors.append(f"{path}={value}, expected generation.n={n}")
+
+    top_n = partitioning_config.get("top_n")
+    if top_n is not None and int(top_n) != n:
+        errors.append(f"partitioning.top_n={int(top_n)}, expected generation.n={n}")
+
+    if errors:
+        formatted = "\n  - ".join(errors)
+        raise ValueError(f"inconsistent topology configuration:\n  - {formatted}")
+
+
 parser = argparse.ArgumentParser(description="Generate streaming data from separated generator configs.")
 parser.add_argument(
     "--run-config",
@@ -132,6 +175,7 @@ resolved = _load_run_configuration(args)
 generation = resolved["generation_config"]
 partitioning_config = resolved["partitioning_config"]
 scenario = resolved["scenario"]
+_validate_topology_config(generation, scenario, partitioning_config, real_counts_path=args.real_counts)
 
 seed = generation["seed"]
 window_size = generation["window_size"]

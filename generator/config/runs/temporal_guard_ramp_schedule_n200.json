@@ -1,0 +1,5 @@
+{
+  "generation": "../generation/temporal_guard_ablation_n200.json",
+  "scenario": "../scenarios/temporal_guard_ramp_n200.json",
+  "partitioning": "../partitioning/temporal_guard_ramp_schedule_n200.json"
+}

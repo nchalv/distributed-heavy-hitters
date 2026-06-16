@@ -1,0 +1,17 @@
+{
+  "policy": "milp_certificate_adversary",
+  "top_n": 200,
+  "milp_target_max_keys": 40,
+  "milp_target_key_fraction": 0.4,
+  "milp_target_min_keys": 40,
+  "milp_hh_target_fraction": 0.5,
+  "milp_nonhh_min_ratio": 0.65,
+  "milp_nonhh_max_ratio": 0.995,
+  "milp_nonhh_count_ratio": 2.0,
+  "milp_key_max_fraction": 0.25,
+  "milp_hidden_weight": 1.0,
+  "milp_mislead_weight": 1.0,
+  "milp_time_limit_sec": 300,
+  "milp_mip_rel_gap": 0.01,
+  "milp_print_diagnostics": true
+}

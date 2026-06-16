@@ -1,0 +1,57 @@
+[
+  {
+    "type": "normal",
+    "duration": 30,
+    "params": {
+      "n": 100,
+      "center_frac": 0.20,
+      "std_frac": 0.0026,
+      "ensure_hh": false
+    },
+    "n": 100
+  },
+  {
+    "type": "normal",
+    "duration": 30,
+    "params": {
+      "n": 100,
+      "center_frac": 0.45,
+      "std_frac": 0.0024,
+      "ensure_hh": false
+    },
+    "n": 100,
+    "transition": {
+      "from": "normal",
+      "transition_windows": 10,
+      "from_params": {
+        "n": 100,
+        "center_frac": 0.20,
+        "std_frac": 0.0026,
+        "ensure_hh": false
+      },
+      "n": 100
+    }
+  },
+  {
+    "type": "normal",
+    "duration": 30,
+    "params": {
+      "n": 100,
+      "center_frac": 0.70,
+      "std_frac": 0.0026,
+      "ensure_hh": false
+    },
+    "n": 100,
+    "transition": {
+      "from": "normal",
+      "transition_windows": 10,
+      "from_params": {
+        "n": 100,
+        "center_frac": 0.45,
+        "std_frac": 0.0024,
+        "ensure_hh": false
+      },
+      "n": 100
+    }
+  }
+]

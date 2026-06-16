@@ -12,6 +12,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -149,6 +150,12 @@ void test_coordinator_certification_envelope() {
 }
 
 void test_sizing_policy_outputs_are_clamped_and_finite() {
+  const hh::sizing::PolicyConfig default_cfg;
+  require(default_cfg.censored_control &&
+              default_cfg.probe_residual_guard &&
+              default_cfg.residual_guard_window == 2,
+          "censored residual-guarded control is the default sizing policy");
+
   const auto result = make_manual_reduction();
 
   hh::SnapshotEx s0;
@@ -168,8 +175,8 @@ void test_sizing_policy_outputs_are_clamped_and_finite() {
   cfg.n_param = 3;
   cfg.q_cur = 2;
   cfg.q_min = 2;
-  cfg.q_max = 5;
-  cfg.q_cap = 4;
+  cfg.q_max = 40;
+  cfg.q_cap = 40;
   cfg.alpha_req = 1.0;
   cfg.r_m = 0.25;
 
@@ -178,11 +185,286 @@ void test_sizing_policy_outputs_are_clamped_and_finite() {
   require(first.q_req >= cfg.n_param, "difficulty policy reports a requirement at least n");
   require(first.q_next >= cfg.q_min && first.q_next <= cfg.q_cap && first.q_next <= cfg.q_max,
           "difficulty policy clamps q_next");
-  require(first.da >= 0.0 && first.da <= 1.0, "difficulty policy ambiguity mass is normalized");
+  require(first.q_base >= first.q_req,
+          "ambiguity adjustment cannot lower the effective requirement");
+  require(first.q_base == first.q_req,
+          "ambiguity remains inactive when all resolution demands have negative utility");
+
+  require(first.g_amb == 0.0,
+          "non-binding ambiguity reports no actuation lift");
   require(first.q_pred >= cfg.n_param, "difficulty policy exports predictive effective capacity");
+
+  cfg.alpha_req = 0.5;
+  cfg.ambiguity_adjust = false;
+  const auto unadjusted = hh::sizing::next_q_ss(result, {s0, s1}, cfg, nullptr);
+  require(unadjusted.q_base == unadjusted.q_req,
+          "requirement-only ablation keeps q_eff equal to q_req");
+
+  const Id128 cheap_id = id_for("cheap-ambiguity");
+  const Id128 costly_id = id_for("costly-ambiguity");
+  hh::GlobalResultLB efficiency_result;
+  efficiency_result.N_global = 1000;
+  efficiency_result.threshold = 101;
+  efficiency_result.items = {
+      {cheap_id, "cheap-ambiguity", 110, 99, 1, 1.0, 99, 120, false},
+      {costly_id, "costly-ambiguity", 101, 0, 1, 1.0, 0, 200, false},
+  };
+  hh::SnapshotEx efficiency_snap;
+  efficiency_snap.N_local = 1000;
+  efficiency_snap.q_local = 10;
+  efficiency_snap.candidates = {{cheap_id, 110}, {costly_id, 101}};
+  efficiency_snap.errors = {{110, 0}, {101, 0}};
+
+  hh::sizing::PolicyConfig efficiency_cfg;
+  efficiency_cfg.kind = hh::sizing::PolicyKind::difficulty;
+  efficiency_cfg.n_param = 10;
+  efficiency_cfg.q_cur = 10;
+  efficiency_cfg.q_min = 10;
+  efficiency_cfg.q_max = 2000;
+  efficiency_cfg.q_cap = 2000;
+  efficiency_cfg.alpha_req = 0.95;
+  efficiency_cfg.r_m = 0.01;
+  efficiency_cfg.ambiguity_adjust = true;
+  const auto efficient = hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, efficiency_cfg, nullptr);
+  require(efficient.q_req == 10,
+          "zero certificate inflation leaves the baseline requirement at n");
+  require(efficient.q_base == 12,
+          "cost-sensitive ambiguity serves the efficient resolution before the costly near-tie");
+  require(std::abs(efficient.g_amb - std::log(12.0 / 10.0)) < 1e-12,
+          "ambiguity reports its attributable log-capacity margin");
+
+  hh::SnapshotEx high_error_snap = efficiency_snap;
+  high_error_snap.errors = {{110, 100}, {101, 100}};
+  hh::sizing::PolicyConfig upward_cfg = efficiency_cfg;
+  upward_cfg.ambiguity_adjust = false;
+  upward_cfg.censored_control = false;
+  upward_cfg.probe_residual_guard = false;
+  upward_cfg.q_cur = 40;
+  const auto held = hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, upward_cfg, nullptr);
+  require(!held.service_violation && held.q_up == 0 &&
+              held.q_baseline == 40 && held.q_pred == 40,
+          "upward-only control holds capacity after a sufficient window");
+
+  upward_cfg.q_cur = 10;
+  const auto raised = hh::sizing::next_q_ss(
+      efficiency_result, {high_error_snap}, upward_cfg, nullptr);
+  require(raised.service_violation && raised.q_up == 100 &&
+              raised.q_baseline == 100 && raised.q_pred == 100,
+          "a service violation activates origin-aware upward sizing");
+
+  hh::sizing::PolicyConfig probing_cfg = upward_cfg;
+  probing_cfg.censored_control = true;
+  probing_cfg.residual_guard_window = 2;
+  probing_cfg.q_cur = 40;
+  hh::sizing::PolicyState probing_state;
+  const auto first_sufficient = hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, probing_cfg, &probing_state);
+  require(first_sufficient.q_pred == 40 && !first_sufficient.probe_issued,
+          "one sufficient observation does not release memory");
+  const auto second_sufficient = hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, probing_cfg, &probing_state);
+  require(second_sufficient.q_pred == 20 &&
+              second_sufficient.probe_issued &&
+              probing_state.difficulty.probe_active,
+          "repeated sufficiency starts a physical geometric probe");
+
+  probing_cfg.q_cur = 20;
+  const auto successful_probe = hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, probing_cfg, &probing_state);
+  require(!successful_probe.service_violation &&
+              successful_probe.q_pred == 20 &&
+              !probing_state.difficulty.probe_active &&
+              probing_state.difficulty.sufficient_upper == 20,
+          "a sufficient unguarded probe becomes the retained upper point");
+
+  hh::sizing::PolicyState failed_probe_state;
+  probing_cfg.q_cur = 40;
+  (void)hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, probing_cfg, &failed_probe_state);
+  (void)hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, probing_cfg, &failed_probe_state);
+  hh::SnapshotEx moderate_error_snap = efficiency_snap;
+  moderate_error_snap.errors = {{110, 15}, {101, 15}};
+  probing_cfg.q_cur = 20;
+  const auto failed_probe = hh::sizing::next_q_ss(
+      efficiency_result, {moderate_error_snap}, probing_cfg, &failed_probe_state);
+  require(failed_probe.service_violation && failed_probe.probe_failed &&
+              failed_probe.q_up == 30 && failed_probe.q_pred == 30 &&
+              !failed_probe_state.difficulty.probe_active,
+          "an insufficient probe recovers through fresh upward sizing");
+
+  hh::sizing::PolicyConfig guarded_cfg = probing_cfg;
+  guarded_cfg.probe_residual_guard = true;
+  guarded_cfg.q_cur = 40;
+  hh::sizing::PolicyState guarded_state;
+  (void)hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, guarded_cfg, &guarded_state);
+  (void)hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, guarded_cfg, &guarded_state);
+  guarded_cfg.q_cur = 20;
+  const auto guarded_failure = hh::sizing::next_q_ss(
+      efficiency_result, {moderate_error_snap}, guarded_cfg, &guarded_state);
+  require(guarded_failure.q_pred == 30 &&
+              guarded_failure.probe_failed &&
+              guarded_state.difficulty.guarded_demand == 30 &&
+              guarded_state.difficulty.probe_residual > 0.0,
+          "a failed probe retains its recovered demand");
+
+  guarded_cfg.q_cur = 30;
+  const auto first_recovery = hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, guarded_cfg, &guarded_state);
+  require(first_recovery.q_pred == 30 &&
+              !first_recovery.probe_issued &&
+              guarded_state.difficulty.guarded_demand == 30,
+          "one sufficient recovery window holds the guarded demand");
+
+  hh::SnapshotEx low_error_snap = efficiency_snap;
+  low_error_snap.errors = {{110, 5}, {101, 5}};
+  const auto confirmed_recovery = hh::sizing::next_q_ss(
+      efficiency_result, {low_error_snap}, guarded_cfg, &guarded_state);
+  require(confirmed_recovery.q_pred == 30 &&
+              !confirmed_recovery.probe_issued &&
+              guarded_state.difficulty.guarded_demand == 0,
+          "two sufficient recovery windows clear the failed-probe guard");
+
+  const auto first_post_recovery = hh::sizing::next_q_ss(
+      efficiency_result, {low_error_snap}, guarded_cfg, &guarded_state);
+  require(first_post_recovery.q_pred == 30 &&
+              !first_post_recovery.probe_issued,
+          "one post-recovery observation does not yet probe");
+  const auto guarded_retry = hh::sizing::next_q_ss(
+      efficiency_result, {low_error_snap}, guarded_cfg, &guarded_state);
+  require(guarded_retry.q_pred == 26 && guarded_retry.probe_issued &&
+              guarded_state.difficulty.probe_active,
+          "confirmed recovery permits a later real probe");
+
+  guarded_cfg.q_cur = 26;
+  const auto guarded_first_success = hh::sizing::next_q_ss(
+      efficiency_result, {low_error_snap}, guarded_cfg, &guarded_state);
+  require(guarded_first_success.q_pred == 26 &&
+              guarded_state.difficulty.probe_active &&
+              guarded_state.difficulty.probe_success_streak == 1,
+          "one successful guarded probe awaits confirmation");
+  const auto guarded_second_success = hh::sizing::next_q_ss(
+      efficiency_result, {low_error_snap}, guarded_cfg, &guarded_state);
+  require(guarded_second_success.q_pred == 26 &&
+              !guarded_state.difficulty.probe_active &&
+              guarded_state.difficulty.probe_residual == 0.0,
+          "two successful guarded observations accept the lower capacity");
+
+  hh::sizing::PolicyState blocked_comfort_state;
+  blocked_comfort_state.difficulty.sufficient_upper = 30;
+  blocked_comfort_state.difficulty.sufficient_streak = 1;
+  blocked_comfort_state.difficulty.guarded_demand = 30;
+  blocked_comfort_state.difficulty.probe_success_streak = 0;
+  hh::sizing::PolicyConfig blocked_comfort_cfg = guarded_cfg;
+  blocked_comfort_cfg.probe_strategy = hh::sizing::ProbeStrategy::comfort;
+  blocked_comfort_cfg.q_cur = 30;
+  const auto blocked_comfort = hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, blocked_comfort_cfg,
+      &blocked_comfort_state);
+  require(blocked_comfort.q_pred == 30 &&
+              !blocked_comfort.probe_issued,
+          "a blocking guard holds capacity instead of forcing a q-minus-one probe");
+
+  hh::sizing::PolicyConfig comfort_cfg = probing_cfg;
+  comfort_cfg.probe_strategy = hh::sizing::ProbeStrategy::comfort;
+  comfort_cfg.probe_residual_guard = true;
+  comfort_cfg.q_cur = 40;
+  hh::sizing::PolicyState comfort_state;
+  (void)hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, comfort_cfg, &comfort_state);
+  const auto comfort_probe = hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, comfort_cfg, &comfort_state);
+  require(comfort_probe.q_pred == 35 && comfort_probe.probe_issued,
+          "comfort probing uses a capped arithmetic midpoint");
+
+  hh::sizing::PolicyConfig pressure_cfg = probing_cfg;
+  pressure_cfg.probe_strategy = hh::sizing::ProbeStrategy::pressure;
+  pressure_cfg.probe_residual_guard = true;
+  pressure_cfg.q_cur = 40;
+
+  hh::SnapshotEx hold_snap = efficiency_snap;
+  hold_snap.errors = {{110, 7}, {101, 7}};
+  hh::sizing::PolicyState hold_state;
+  (void)hh::sizing::next_q_ss(
+      efficiency_result, {hold_snap}, pressure_cfg, &hold_state);
+  const auto pressure_hold = hh::sizing::next_q_ss(
+      efficiency_result, {hold_snap}, pressure_cfg, &hold_state);
+  require(pressure_hold.q_pred == 40 &&
+              !pressure_hold.probe_issued &&
+              !pressure_hold.service_violation,
+          "pressure above one half of the budget vetoes a guarded probe");
+
+  hh::sizing::PolicyState pressure_state;
+  const auto pressure_wait = hh::sizing::next_q_ss(
+      efficiency_result, {low_error_snap}, pressure_cfg, &pressure_state);
+  require(pressure_wait.q_pred == 40 &&
+              !pressure_wait.probe_issued,
+          "one low-pressure observation does not bypass the temporal guard");
+  const auto pressure_probe = hh::sizing::next_q_ss(
+      efficiency_result, {low_error_snap}, pressure_cfg, &pressure_state);
+  require(pressure_probe.q_pred == 35 &&
+              pressure_probe.probe_issued,
+          "guarded half-budget pressure uses a capped arithmetic midpoint");
+
+  hh::sizing::PolicyState zero_state;
+  (void)hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, pressure_cfg, &zero_state);
+  const auto zero_probe = hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, pressure_cfg, &zero_state);
+  require(zero_probe.q_pred == 35 &&
+              zero_probe.probe_issued,
+          "a guarded censored zero margin permits only a shallow half-n release");
+
+  pressure_cfg.q_cur = 35;
+  const auto pressure_failure = hh::sizing::next_q_ss(
+      efficiency_result, {moderate_error_snap}, pressure_cfg, &zero_state);
+  require(pressure_failure.probe_failed &&
+              pressure_failure.q_pred == 53 &&
+              zero_state.difficulty.probe_retry_depth == 3,
+          "a failed pressure probe halves the next admissible release depth");
+
+  pressure_cfg.q_cur = 53;
+  const auto pressure_recovery = hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, pressure_cfg, &zero_state);
+  require(pressure_recovery.q_pred == 53 &&
+              !pressure_recovery.probe_issued &&
+              zero_state.difficulty.guarded_demand == 0,
+          "one sufficient recovery observation clears the failed-probe hold");
+  const auto pressure_retry_wait = hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, pressure_cfg, &zero_state);
+  require(pressure_retry_wait.q_pred == 53 &&
+              !pressure_retry_wait.probe_issued,
+          "a recovered pressure probe again waits for guarded confirmation");
+  const auto pressure_retry = hh::sizing::next_q_ss(
+      efficiency_result, {efficiency_snap}, pressure_cfg, &zero_state);
+  require(pressure_retry.q_pred == 50 &&
+              pressure_retry.probe_issued,
+          "the next pressure-authorized retry respects the halved failure depth");
+
+  hh::GlobalResultLB resolved_result = efficiency_result;
+  resolved_result.items = {
+      {cheap_id, "cheap-ambiguity", 110, 0, 1, 1.0, 102, 120, false},
+  };
+  hh::sizing::PolicyState ambiguity_state;
+  ambiguity_state.difficulty.ambiguity_margin = std::log(12.0 / 10.0);
+  efficiency_cfg.residual_guard_decay = 0.5;
+  const auto persisted = hh::sizing::next_q_ss(
+      resolved_result, {efficiency_snap}, efficiency_cfg, &ambiguity_state);
+  require(std::abs(persisted.b_q) < 1e-12,
+          "ambiguity persistence does not alter the temporal residual bias");
+  require(std::abs(persisted.g_amb - 0.5 * std::log(12.0 / 10.0)) < 1e-12 &&
+              std::abs(ambiguity_state.difficulty.ambiguity_margin -
+                       persisted.g_amb) < 1e-12,
+          "unrefreshed ambiguity margin decays by the shared beta");
 
   cfg.kind = hh::sizing::PolicyKind::fixed;
   cfg.q_cur = 9;
+  cfg.q_cap = 4;
+  cfg.q_max = 5;
   const auto fixed = hh::sizing::next_q_ss(result, {s0, s1}, cfg, nullptr);
   require(fixed.q_next == 4, "fixed policy honors configured cap");
 }

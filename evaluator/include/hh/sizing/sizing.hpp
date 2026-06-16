@@ -16,8 +16,9 @@ namespace sizing {
 
 // Supported sizing policies:
 //  - fixed: hold q constant (still clamped by q_min/q_max)
-//  - difficulty: requirement-based predictive controller from the paper.
+//  - difficulty: certificate-pressure controller from the paper.
 enum class PolicyKind { fixed, difficulty };
+enum class ProbeStrategy { bracket, comfort, pressure };
 
 struct PolicyConfig {
   PolicyKind kind{PolicyKind::fixed};
@@ -28,7 +29,7 @@ struct PolicyConfig {
   std::size_t q_cap{std::size_t(-1)};  // per-partition memory cap (in entries)
   std::size_t q_cur{0};      // current q_t (for reporting)
 
-  double alpha_req{0.8};     // quantile for Q_alpha in q_Req^t under difficulty policy
+  double alpha_req{0.8};     // service quantile for M_alpha under difficulty policy
 
   // Optional minimum/maximum clamps
   std::size_t q_min{1};
@@ -37,26 +38,43 @@ struct PolicyConfig {
   // Optional candidate filter (paper: sizing over candidate set C_t)
   const std::unordered_set<Id128, Id128Hash>* candidate_ids{nullptr};
 
-  // EWMA + safety calibration knobs for difficulty-aware sizing policy
-  double rho{0.5};                  // EWMA mixing for effective-requirement forecast z_eff
-  double rho_a{0.5};                // EWMA mixing for ambiguity level \bar D_A
-  std::size_t calib_window{0};       // residual-history length (0 => use all collected up to cap)
-
-  // Calibrated safety level in the theory: b_eff = quantile_{1-delta}(effective residuals)
-  double delta_m{0.1};              // used as \delta for effective residual calibration
-  std::size_t trend_h{3};           // ambiguity-trend horizon h >= 2
-  double lambda_a{0.0};             // ambiguity-level gain \lambda_A
-  double lambda_g{0.0};             // ambiguity-trend gain \lambda_G
+  // Number of consecutive sufficient observations required before a downward
+  // probe is issued or a guarded probe is accepted.
+  std::size_t residual_guard_window{2};
+  // Shared geometric decay for the independent ambiguity margin.
+  double residual_guard_decay{0.5};
+  // Deprecated compatibility switch; one-sided pressure control always reacts
+  // immediately to demonstrated insufficiency.
+  bool symmetric_relaxation{false};
+  // Enable physical downward probing after repeated sufficient observations.
+  // When false, the controller is upward-only and never releases memory.
+  bool censored_control{true};
+  // Retain the upward demand exposed by a failed probe while recovery is
+  // confirmed. The guard clears after two sufficient recovery observations.
+  bool probe_residual_guard{true};
+  // Select lower probes from the historical bracket, current quantile margin
+  // headroom, or guarded margin-comfort probing with a pressure veto.
+  ProbeStrategy probe_strategy{ProbeStrategy::bracket};
+  double probe_pressure_gate{0.5}; // maximum M_alpha/r_M authorizing release
+  // Retained for compatibility with older method specs; ignored by difficulty.
+  double delta_m{0.1};
+  bool ambiguity_adjust{true};      // if true, select the ambiguity-resolution frontier knee
 
   // Sizing coefficients for difficulty policy
   double r_m{0.10};
 };
 
 struct DifficultyState {
-  double z_eff_hat{NAN};       // one-step forecast \hat z_eff
-  double da_smooth{NAN};       // smoothed ambiguity \bar D_A
-  std::deque<double> z_eff_res_hist; // residuals R_eff for calibration quantile
-  std::deque<double> da_smooth_hist; // recent \bar D_A for trend slope G_A
+  std::size_t probe_lower{0}; // lower boundary established by failed probes
+  std::size_t sufficient_upper{0}; // last capacity observed sufficient
+  std::size_t sufficient_streak{0}; // consecutive sufficient observations
+  bool probe_active{false}; // current capacity was selected as a downward probe
+  std::size_t guarded_demand{0}; // upward demand exposed by the latest failed probe
+  double probe_residual{0.0}; // positive log(M_alpha/r_m) at the latest failure
+  std::size_t probe_success_streak{0};
+  std::size_t probe_retry_depth{0}; // maximum release after a failed probe
+  double b_req{0.0};           // log baseline movement relative to current q
+  double ambiguity_margin{0.0}; // persisted ambiguity margin a_Amb in log-capacity space
 };
 
 struct PolicyState {
@@ -66,21 +84,21 @@ struct PolicyState {
 struct PolicyResult {
   std::size_t q_next{0};
   // debug/telemetry
-  double da{NAN};          // for difficulty: ambiguity
-  double z_hat{NAN};       // forecast of z_eff
-  double da_hat{NAN};      // smoothed ambiguity \bar D_A
-  double b_q{NAN};         // effective residual calibration bias b_eff
-  double eta_a{NAN};       // ambiguity trend G_A
-  double q_pred_tilde{NAN}; // calibrated predictor \tilde q_eff^{t+1}
-  double da_tilde{NAN};    // retained for compatibility (unused)
-  double p_plus{NAN};      // retained for compatibility (unused by v2)
-  double g_amb{NAN};       // retained for compatibility (unused by v2)
-  double g_head{NAN};      // retained for compatibility (unused by v2)
-  double kappa_t{NAN};     // retained for compatibility (unused by v2)
-  std::size_t q_req{0};   // current-window realized required capacity
+  double margin_alpha{NAN}; // realized service margin M_alpha
+  bool service_violation{false};
+  std::size_t q_up{0};     // upward demand; zero when the service target is met
+  std::size_t q_baseline{0}; // target selected by upward response or probing
+  bool probe_issued{false};
+  bool probe_failed{false};
+  double z_hat{NAN};       // log baseline target
+  double b_q{NAN};         // log movement of baseline target relative to q_cur
+  double q_pred_tilde{NAN}; // calibrated predictive next-window capacity after ambiguity guard
+  double g_amb{NAN};       // ambiguity-attributable log-capacity margin
+  // Deprecated aliases retained while experiment/reporting code migrates.
+  std::size_t q_req_unclipped{0}; // q_up, or zero when no upward demand exists
+  std::size_t q_req{0};   // baseline next-window target
   std::size_t q_pred{0};  // calibrated predictive next-window effective capacity
-  std::size_t q_base{0};  // effective requirement replay ceil(exp(z_eff))
-  std::size_t q_tar{0};   // retained for compatibility (same as q_pred in v2)
+  std::size_t q_base{0};  // ambiguity-adjusted target
 };
 
 /// Compute next q for SpaceSaving given the global reduction and all local snapshots.

@@ -1,0 +1,65 @@
+[
+  {
+    "type": "controlled_hh_background",
+    "duration": 15,
+    "params": {
+      "n": 200,
+      "num_hh": 8,
+      "hh_min_ratio": 1.80,
+      "hh_max_ratio": 2.80,
+      "background_keys": 7000,
+      "background_shape": "uniform"
+    },
+    "n": 200
+  },
+  {
+    "type": "controlled_hh_background",
+    "duration": 10,
+    "params": {
+      "n": 200,
+      "num_hh": 65,
+      "hh_min_ratio": 1.005,
+      "hh_max_ratio": 1.12,
+      "background_keys": 14900,
+      "background_shape": "uniform"
+    },
+    "transition": {
+      "from": "controlled_hh_background",
+      "transition_windows": 30,
+      "from_params": {
+        "n": 200,
+        "num_hh": 8,
+        "hh_min_ratio": 1.80,
+        "hh_max_ratio": 2.80,
+        "background_keys": 7000,
+        "background_shape": "uniform"
+      }
+    },
+    "n": 200
+  },
+  {
+    "type": "controlled_hh_background",
+    "duration": 15,
+    "params": {
+      "n": 200,
+      "num_hh": 8,
+      "hh_min_ratio": 1.80,
+      "hh_max_ratio": 2.80,
+      "background_keys": 7000,
+      "background_shape": "uniform"
+    },
+    "transition": {
+      "from": "controlled_hh_background",
+      "transition_windows": 30,
+      "from_params": {
+        "n": 200,
+        "num_hh": 65,
+        "hh_min_ratio": 1.005,
+        "hh_max_ratio": 1.12,
+        "background_keys": 14900,
+        "background_shape": "uniform"
+      }
+    },
+    "n": 200
+  }
+]

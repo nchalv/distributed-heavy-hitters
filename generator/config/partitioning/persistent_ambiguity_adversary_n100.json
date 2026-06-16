@@ -1,0 +1,22 @@
+{
+  "policy": "persistent_ambiguity_adversary",
+  "top_n": 100,
+  "pa_hh_spread_fraction": 0.75,
+  "pa_hh_local_cap_scale": 0.85,
+  "pa_nonhh_min_ratio": 0.65,
+  "pa_nonhh_max_ratio": 0.995,
+  "pa_nonhh_home_fraction": 0.05,
+  "pa_nonhh_home_mass_frac": 0.90,
+  "locality_global_fraction": 0.10,
+  "locality_regional_fraction": 0.45,
+  "locality_local_fraction": 0.35,
+  "locality_regional_home_fraction": 0.20,
+  "locality_local_home_fraction": 0.04,
+  "locality_global_strength": 0.10,
+  "locality_regional_strength": 0.75,
+  "locality_local_strength": 0.90,
+  "locality_background_strength": 0.00,
+  "locality_uniform_floor_fraction": 0.10,
+  "locality_weight_jitter": 0.05,
+  "validate_count_preservation": true
+}

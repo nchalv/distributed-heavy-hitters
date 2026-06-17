@@ -493,7 +493,8 @@ int main(int argc, char** argv) {
         const auto& it = R.items[i];
         const bool in_top = (i < topk);
         const bool in_top2 = (i < top2k);
-        const bool challenger = (!in_top && it.cert_ub >= R.threshold);
+        const bool frontier = (it.cert_ub >= R.threshold);
+        const bool challenger = (!in_top && frontier);
         if (in_top || challenger) hybrid_candidate_ids.insert(it.id);
         if (A.head_policy == HeadPolicy::TopN) {
           if (in_top) hybrid_seed_ids.push_back(it.id);

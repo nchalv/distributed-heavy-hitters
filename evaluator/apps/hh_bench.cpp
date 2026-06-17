@@ -82,6 +82,10 @@ struct CsvRow {
 
   std::size_t q_current{0};
   std::size_t q_next{0};
+  std::size_t q_head_current{0};
+  std::size_t q_tail_current{0};
+  std::size_t q_head_next{0};
+  std::size_t q_tail_next{0};
   double margin_alpha{NAN};
   int service_violation{-1};
   std::size_t q_up{0};
@@ -186,7 +190,8 @@ static std::string csv_escape(const std::string& s) {
 static void write_csv_header(std::ostream& os) {
   os << "window,method,method_type,N_global,threshold,"
      << "hh_precision,hh_recall,hh_f1,aae,are,topk_overlap,"
-     << "q_current,q_next,margin_alpha,service_violation,q_up,q_baseline,"
+     << "q_current,q_next,q_head_current,q_tail_current,q_head_next,q_tail_next,"
+     << "margin_alpha,service_violation,q_up,q_baseline,"
      << "probe_issued,probe_failed,"
      << "q_req_unclipped,q_req,q_eff_replay,q_eff_pred,q_eff_pred_tilde,"
      << "miss_req,miss_eff,over_req,over_eff,"
@@ -226,6 +231,10 @@ static void write_csv_row(std::ostream& os, const CsvRow& r) {
      << (r.has_topk ? num(r.topk_overlap) : std::string{}) << ','
      << opt_size(r.q_current) << ','
      << opt_size(r.q_next) << ','
+     << opt_size(r.q_head_current) << ','
+     << opt_size(r.q_tail_current) << ','
+     << opt_size(r.q_head_next) << ','
+     << opt_size(r.q_tail_next) << ','
      << num(r.margin_alpha) << ','
      << opt_int(r.service_violation) << ','
      << opt_size(r.q_up) << ','
@@ -1196,7 +1205,11 @@ int main(int argc, char** argv) {
           row.topk_overlap = *wm.topk_overlap;
         }
         if (groups[gi].name == "ss") row.q_current = ss_q_curs[gi];
-        else if (groups[gi].name == "hybrid") row.q_current = hybrid_qe[gi] + hybrid_qa[gi];
+        else if (groups[gi].name == "hybrid") {
+          row.q_current = hybrid_qe[gi] + hybrid_qa[gi];
+          row.q_head_current = hybrid_qe[gi];
+          row.q_tail_current = hybrid_qa[gi];
+        }
         row.cert = certification_metrics(oracleR, Rs[gi]);
         row.mem_worker_algo_kib = algo_equiv_kib_win;
         row.mem_worker_key_kib = key_equiv_kib_win;
@@ -1242,7 +1255,7 @@ int main(int argc, char** argv) {
 
       const auto& R_for_hybrid = Rs[gi];
       const auto& hyb_cfg = methods[gi];
-      // Candidate set C: provisional top-n plus challengers with cert_ub >= threshold
+      // Head seed from previous-window telemetry.
       hybrid_seed_ids.clear();
       std::size_t topk = std::min<std::size_t>(A.n_param, R_for_hybrid.items.size());
       std::size_t top2k = std::min<std::size_t>(2 * A.n_param, R_for_hybrid.items.size());
@@ -1250,7 +1263,8 @@ int main(int argc, char** argv) {
         const auto& it = R_for_hybrid.items[i];
         const bool in_top = (i < topk);
         const bool in_top2 = (i < top2k);
-        const bool challenger = (!in_top && it.cert_ub >= R_for_hybrid.threshold);
+        const bool frontier = (it.cert_ub >= R_for_hybrid.threshold);
+        const bool challenger = (!in_top && frontier);
         if (hyb_cfg.head_policy == HeadPolicy::TopN) {
           if (in_top) hybrid_seed_ids.push_back(it.id);
         } else if (hyb_cfg.head_policy == HeadPolicy::Top2N) {
@@ -1420,6 +1434,8 @@ int main(int argc, char** argv) {
       }
       if (!A.csv_out.empty()) {
         csv_rows[gi].q_next = hybrid_qe[gi] + hybrid_qa[gi];
+        csv_rows[gi].q_head_next = hybrid_qe[gi];
+        csv_rows[gi].q_tail_next = hybrid_qa[gi];
       }
       const auto control_t1 = std::chrono::steady_clock::now();
       control_ms_by_group[gi] =

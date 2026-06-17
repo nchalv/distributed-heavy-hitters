@@ -1101,7 +1101,7 @@ This formulation preserves the main design principle of the paper: every control
 
 Sections~\ref{sec:problem}--\ref{sec:predictive} developed the core framework under a deliberately simple regime: each partition maintains a single Space-Saving summary of common size \(q^t\), the coordinator derives deterministic heavy-hitter certificates from the resulting telemetry, and the controller sizes the next window using one-sided upward pressure, residual-guarded downward probes, and a separate ambiguity guard. This common-size regime is sufficient to state the main certification and planning results cleanly. In practice, however, some workloads contain a small stable head of dominant keys whose repeated approximate tracking is wasteful. This section shows how to reserve exact state for such keys while preserving the same certificate-driven planning architecture.
 
-When a small set of dominant keys remains stable across windows, it may be worthwhile to track those keys exactly while applying Space-Saving only to the residual tail. This yields a hybrid regime that separates stable dominant mass from the dynamically changing remainder of the stream.
+When a small set of important keys persists across windows, it may be worthwhile to track those keys exactly while applying Space-Saving only to the residual tail. Importance can come from two sources. A key may be a stable dominant item whose mass is repeatedly large, or it may lie on the unresolved heavy-hitter boundary, where exact tracking can collapse a threshold-crossing interval if the key persists. This yields a hybrid regime that separates selected head mass from the dynamically changing remainder of the stream.
 
 Fix a coordinator-chosen promoted head \(E^t \subseteq \mathcal{K}\) in window \(t\). Partition \(i\) then maintains:
 \begin{enumerate}[leftmargin=*]
@@ -1312,7 +1312,11 @@ r^{t+1},
 \]
 where \(e^{t+1}\) is chosen by a head-promotion rule and \(r^{t+1}\) is produced by the upward-response and probing controller applied to the residual margin signal.
 
-A practical promotion rule is to let \(E^{t+1}\) consist of the most stable certified heavy hitters over a recent window horizon, or equivalently the top-\(L\) keys that repeatedly belong to \(K_+^t\). The precise promotion heuristic is workload-dependent and is therefore best left as a deployment choice. The essential point is that the hybrid regime is not a different framework; it is a structured refinement of the same certification and capacity-pressure architecture.
+The choice of \(E^{t+1}\) is a promotion policy, not a new correctness assumption. It must be based on certificates and estimates available after window \(t\), and it affects only which keys receive exact counters in the next window. We use the one-step promoted set
+\[
+E^{t+1}=\mathrm{Top}_n^t\cup K_+^t\cup K_?^t,
+\]
+where \(\mathrm{Top}_n^t\) denotes the \(n\) largest estimated candidates in the realized window. This promoted set captures stable high-rank keys even when certification is conservative, while still retaining all certified-positive and unresolved boundary keys. Longer-horizon variants can require repeated membership or rank stability before promotion, but the essential point is unchanged: the hybrid regime is a structured refinement of the same certification and capacity-pressure architecture, not a separate inference model.
 
 The core framework of the paper remains intentionally narrow: a common-size local Space-Saving summary at each partition, deterministic coordinator-side certification, requirement inversion, and predictive next-window sizing. The hybrid regime broadens only the local telemetry contract: exact counters remove a stable head from the approximate problem, while residual summaries preserve the same signed-envelope analysis for the remaining keys.
 
@@ -1405,6 +1409,35 @@ which expresses the mean count error as a fraction of the heavy-hitter count thr
 \label{fig:temporal-controller-scheduled-error}
 \end{figure*}
 
+
+\begin{figure*}[!t]
+\centering
+\IfFileExists{figures/temporal_controller_stepwise_capacity_scheduled.pdf}{%
+\includegraphics[width=\textwidth]{figures/temporal_controller_stepwise_capacity_scheduled.pdf}%
+}{%
+\fbox{\parbox[c][1.8in][c]{0.95\textwidth}{\centering Per-window scheduled capacity.}}%
+}
+\caption{Per-window deployed capacity \(q/n\) over four scheduled difficulty profiles. Markers identify downward probes, failed probes, and service violations; background bands identify the active partitioning regime.}
+\Description{Per-window capacity plots compare four temporal controllers under sharp-step, smooth-ramp, short-burst, and block-oscillation schedules.}
+\label{fig:temporal-controller-scheduled-capacity}
+\end{figure*}
+
+Figure~\ref{fig:temporal-controller-scheduled-capacity} exposes the corresponding
+memory trajectories. Margin-comfort probing releases memory in measured steps,
+while pressure gating often delays release after difficulty falls.
+
+\begin{figure*}[!b]
+\centering
+\IfFileExists{figures/temporal_controller_stepwise_error_stationary.pdf}{%
+\includegraphics[width=\textwidth]{figures/temporal_controller_stepwise_error_stationary.pdf}%
+}{%
+\fbox{\parbox[c][1.5in][c]{0.95\textwidth}{\centering Per-window stationary error.}}%
+}
+\caption{Per-window threshold-normalized error under matched stationary round-robin and MILP-stress partitioning. The dashed line is the configured margin budget \(\varepsilon_M=0.10\).}
+\Description{Per-window error plots compare four temporal controllers under stationary round-robin and stationary MILP-stress partitioning.}
+\label{fig:temporal-controller-stationary-error}
+\end{figure*}
+
 \subsection{Controller Configuration}
 \label{subsec:exp-config}
 We configure the controller in stages. The first experiment selects two operating profiles for the margin and service-fraction pair under a fixed residual-guarded probing reference. The second isolates the temporal release mechanism and selects the final probe-depth policy. The third evaluates ambiguity actuation after that baseline controller has been fixed. This ordering separates the service objective from the choice of downward-release rule while retaining ablations that identify where the final behavior originates.
@@ -1413,6 +1446,21 @@ We configure the controller in stages. The first experiment selects two operatin
 \label{subsubsec:margin-service-calibration}
 
 We first vary the fractional deterministic margin budget \(\varepsilon_M\) and service fraction \(\alpha\). As defined in Section~\ref{subsec:req-perkey}, the absolute margin target is \(r_M=\varepsilon_M/n\). Hence \(\varepsilon_M\) specifies acceptable deterministic slack in units of the heavy-hitter threshold, while \(\alpha\) determines the fraction of HH-relevant candidates represented by the window-level service margin \(M_\alpha\).
+
+
+
+\begin{figure*}[!t]
+\centering
+\IfFileExists{figures/temporal_controller_stepwise_capacity_stationary.pdf}{%
+\includegraphics[width=\textwidth]{figures/temporal_controller_stepwise_capacity_stationary.pdf}%
+}{%
+\fbox{\parbox[c][1.5in][c]{0.95\textwidth}{\centering Per-window stationary capacity.}}%
+}
+\caption{Per-window deployed capacity \(q/n\) under matched stationary round-robin and MILP-stress partitioning. Markers identify downward probes, failed probes, and service violations.}
+\Description{Per-window capacity plots compare four temporal controllers under stationary round-robin and stationary MILP-stress partitioning.}
+\label{fig:temporal-controller-stationary-capacity}
+\end{figure*}
+
 
 The sweep evaluates
 \[
@@ -1483,33 +1531,7 @@ falls. The relevant distinction is therefore not simply how often a policy
 probes, but whether its probe depth and retained failure evidence prevent the
 same unsafe reduction from recurring.
 
-\begin{figure*}[!t]
-\centering
-\IfFileExists{figures/temporal_controller_stepwise_capacity_scheduled.pdf}{%
-\includegraphics[width=\textwidth]{figures/temporal_controller_stepwise_capacity_scheduled.pdf}%
-}{%
-\fbox{\parbox[c][1.8in][c]{0.95\textwidth}{\centering Per-window scheduled capacity.}}%
-}
-\caption{Per-window deployed capacity \(q/n\) over four scheduled difficulty profiles. Markers identify downward probes, failed probes, and service violations; background bands identify the active partitioning regime.}
-\Description{Per-window capacity plots compare four temporal controllers under sharp-step, smooth-ramp, short-burst, and block-oscillation schedules.}
-\label{fig:temporal-controller-scheduled-capacity}
-\end{figure*}
 
-Figure~\ref{fig:temporal-controller-scheduled-capacity} exposes the corresponding
-memory trajectories. Margin-comfort probing releases memory in measured steps,
-while pressure gating often delays release after difficulty falls.
-
-\begin{figure*}[!b]
-\centering
-\IfFileExists{figures/temporal_controller_stepwise_error_stationary.pdf}{%
-\includegraphics[width=\textwidth]{figures/temporal_controller_stepwise_error_stationary.pdf}%
-}{%
-\fbox{\parbox[c][1.5in][c]{0.95\textwidth}{\centering Per-window stationary error.}}%
-}
-\caption{Per-window threshold-normalized error under matched stationary round-robin and MILP-stress partitioning. The dashed line is the configured margin budget \(\varepsilon_M=0.10\).}
-\Description{Per-window error plots compare four temporal controllers under stationary round-robin and stationary MILP-stress partitioning.}
-\label{fig:temporal-controller-stationary-error}
-\end{figure*}
 
 Figures~\ref{fig:temporal-controller-stationary-error}
 and~\ref{fig:temporal-controller-stationary-capacity} separate two persistent
@@ -1525,25 +1547,13 @@ margin comfort.
 
 These results support guarded margin-comfort probing as the default temporal policy. The bracket variants remain diagnostic baselines, and pressure gating demonstrates that making downward release uniformly more conservative can suppress failures without improving the final tradeoff. The selected controller instead uses pressure to limit probe depth while continuing to validate every lower capacity physically.
 
-
-\begin{figure*}[!h]
-\centering
-\IfFileExists{figures/temporal_controller_stepwise_capacity_stationary.pdf}{%
-\includegraphics[width=\textwidth]{figures/temporal_controller_stepwise_capacity_stationary.pdf}%
-}{%
-\fbox{\parbox[c][1.5in][c]{0.95\textwidth}{\centering Per-window stationary capacity.}}%
-}
-\caption{Per-window deployed capacity \(q/n\) under matched stationary round-robin and MILP-stress partitioning. Markers identify downward probes, failed probes, and service violations.}
-\Description{Per-window capacity plots compare four temporal controllers under stationary round-robin and stationary MILP-stress partitioning.}
-\label{fig:temporal-controller-stationary-capacity}
-\end{figure*}
-
 \begin{table*}[b]
 \caption{Ambiguity-guard ablation. The left group reports operation without
 the guard. The right group reports operation with the guard, followed by the
-change relative to the baseline in parentheses; F1 changes are in percentage
-points. Error is \(n\cdot\mathrm{AAE}/N\), and Act. is the fraction of windows
-in which the ambiguity target exceeds the temporal baseline.}
+change relative to the baseline in parentheses. Header arrows indicate the
+preferred direction for each metric. Error is \(n\cdot\mathrm{AAE}/N\), HH F1
+is reported in percent, and Act. is the fraction of windows in which the
+ambiguity target exceeds the temporal baseline.}
 \label{tab:ambiguity-ablation}
 \centering
 \scriptsize
@@ -1558,35 +1568,35 @@ in which the ambiguity target exceeds the temporal baseline.}
 Workload & \(n\) &
 Error \(\downarrow\) &
 \(\overline q/n\;\downarrow\) &
-HH F1 \(\uparrow\) &
+HH F1 (\%) \(\uparrow\) &
 \(\overline{|K_?|}\;\downarrow\) &
 Error \(\downarrow\) &
 \(\overline q/n\;\downarrow\) &
-HH F1 \(\uparrow\) &
+HH F1 (\%) \(\uparrow\) &
 \(\overline{|K_?|}\;\downarrow\) &
 Act. \\
 \midrule
 MILP stress
-& 100 & \(4.07{\times}10^{-3}\) & 1.55 & 0.973 & 12.77 &
+& 100 & \(4.07{\times}10^{-3}\) & 1.55 & 97.3 & 12.77 &
 \(7.26{\times}10^{-4}\;(-82.1\%)\) & \(2.24\;(+44.6\%)\) &
-\(0.997\;(+2.4)\) & \(1.58\;(-87.6\%)\) & 100.0\% \\
-& 200 & \(1.73{\times}10^{-3}\) & 1.82 & 0.989 & 25.15 &
+\(99.7\;(+2.4)\) & \(1.58\;(-87.6\%)\) & 100.0\% \\
+& 200 & \(1.73{\times}10^{-3}\) & 1.82 & 98.9 & 25.15 &
 \(6.84{\times}10^{-4}\;(-60.4\%)\) & \(2.11\;(+15.9\%)\) &
-\(0.997\;(+0.7)\) & \(3.80\;(-84.9\%)\) & 100.0\% \\
-& 400 & \(9.71{\times}10^{-4}\) & 2.21 & 0.984 & 8.03 &
+\(99.7\;(+0.7)\) & \(3.80\;(-84.9\%)\) & 100.0\% \\
+& 400 & \(9.71{\times}10^{-4}\) & 2.21 & 98.4 & 8.03 &
 \(6.54{\times}10^{-4}\;(-32.7\%)\) & \(2.35\;(+6.3\%)\) &
-\(0.988\;(+0.4)\) & \(7.36\;(-8.3\%)\) & 100.0\% \\
+\(98.8\;(+0.4)\) & \(7.36\;(-8.3\%)\) & 100.0\% \\
 \addlinespace[2pt]
 Persistent locality
-& 100 & \(1.92{\times}10^{-5}\) & 1.22 & 0.976 & 4.82 &
+& 100 & \(1.92{\times}10^{-5}\) & 1.22 & 97.6 & 4.82 &
 \(2.02{\times}10^{-6}\;(-89.5\%)\) & \(1.67\;(+37.0\%)\) &
-\(0.997\;(+2.1)\) & \(0.61\;(-87.4\%)\) & 100.0\% \\
-& 200 & \(1.47{\times}10^{-5}\) & 1.12 & 0.975 & 4.19 &
+\(99.7\;(+2.1)\) & \(0.61\;(-87.4\%)\) & 100.0\% \\
+& 200 & \(1.47{\times}10^{-5}\) & 1.12 & 97.5 & 4.19 &
 \(3.20{\times}10^{-6}\;(-78.2\%)\) & \(1.22\;(+9.6\%)\) &
-\(0.985\;(+1.0)\) & \(2.45\;(-41.4\%)\) & 97.3\% \\
-& 400 & \(1.44{\times}10^{-6}\) & 1.00 & 0.986 & 6.16 &
+\(98.5\;(+1.0)\) & \(2.45\;(-41.4\%)\) & 97.3\% \\
+& 400 & \(1.44{\times}10^{-6}\) & 1.00 & 98.6 & 6.16 &
 \(0\;(-100.0\%)\) & \(1.02\;(+1.6\%)\) &
-\(0.989\;(+0.4)\) & \(4.70\;(-23.7\%)\) & 94.5\% \\
+\(98.9\;(+0.4)\) & \(4.70\;(-23.7\%)\) & 94.5\% \\
 \bottomrule
 \end{tabular*}
 \end{table*}
@@ -1607,37 +1617,38 @@ persistence factor \(\beta=0.5\).
 
 
 
-Table~\ref{tab:ambiguity-ablation} shows that the ambiguity signal is
-actionable on the MILP workloads. At \(n=100\), the guard reduces
-threshold-normalized error by \(82\%\) and raises F1 from \(0.973\) to
-\(0.997\), at the cost of increasing mean capacity from \(1.55n\) to
-\(2.24n\). At \(n=200\), the error reduction remains substantial
-(\(60\%\)) while the capacity increase falls to \(16\%\). The \(n=400\)
-workload already runs at \(2.21n\) without the guard, leaving less unresolved
-certificate geometry for additional memory to improve. The guard consequently
-adds only \(6\%\) capacity and yields a smaller, though still positive, error
-reduction.
+Table~\ref{tab:ambiguity-ablation} should be read as an actionability test for
+threshold-crossing uncertainty. On the MILP stress workloads, unresolved
+certificates are not merely present; they remain wide enough that extra local
+memory changes the downstream decision quality. The guard therefore converts a
+large fraction of ambiguous candidates into sharper certificates, and this is
+reflected in both lower threshold-normalized error and higher HH F1. The
+effect is strongest at \(n=100\) and \(n=200\), where the baseline controller
+still leaves substantial certificate geometry unresolved. At \(n=400\), the
+baseline already operates at a higher normalized capacity, so the same
+ambiguity signal has less room to improve quality and induces only a modest
+additional memory cost.
 
-The persistent-locality workloads require a different interpretation. Their
-baseline frequency error is already between \(10^{-5}\) and \(10^{-6}\) in
-threshold units. Percentage reductions are therefore numerically large but
-practically small. The useful result is that the frontier responds
-proportionally to the remaining opportunity: its capacity premium decreases
-from \(37\%\) at \(n=100\), to \(9.6\%\) at \(n=200\), and \(1.6\%\) at
-\(n=400\). In all three cases, the guard reduces the unresolved candidate set
-and improves F1 without sacrificing heavy-hitter recall.
+The persistent-locality workloads expose the other side of the design. They
+also contain repeated threshold-crossing ambiguity, but the baseline frequency
+error is already very small. In that regime, percentage error reductions can
+look large while the absolute improvement is less important. The more useful
+observation is that the guard does not behave like a fixed surcharge: as the
+baseline becomes sufficient, the selected lift contracts sharply, from a
+visible premium at \(n=100\) to almost no added capacity at \(n=400\). In all
+cases the unresolved candidate set shrinks and F1 improves.
 
-Actuation is frequent because both workload families were constructed to
-maintain threshold-crossing uncertainty, and the ambiguity margin persists
-briefly across adjacent windows. Frequent actuation does not imply a fixed
-memory surcharge: the frontier-selected lift falls sharply as the temporal
-baseline itself becomes sufficient. This distinction is visible at
-\(n=400\), where the guard is active in most windows but changes mean capacity
-by only \(1.6\%\) under persistent locality. Overall, the ablation supports
-ambiguity adjustment as a useful component of the complete controller: it
-produces large gains when unresolved certificates remain material, while its
-incremental cost contracts when the baseline already provides adequate
-resolution.
+Actuation is frequent because the workloads deliberately maintain ambiguous
+near-threshold structure and because the ambiguity margin persists briefly
+across adjacent windows. Frequent actuation, however, is not equivalent to
+uncontrolled memory growth. The materiality--cost frontier raises capacity
+only when the unresolved certificates it can resolve justify the proportional
+increase over the temporal baseline. When ambiguity has largely been resolved
+already, the same rule does not keep spending memory arbitrarily; the remaining
+gain is limited, so the selected lift becomes marginal. The ablation therefore
+supports the guard as a conditional refinement of the complete controller: it
+is valuable when ambiguity is both observed and actionable, and its overhead
+contracts when the baseline already provides adequate resolution.
 
 \subsubsection{Selected Operating Profiles}
 The remainder of the evaluation carries the quality-oriented and memory-oriented margin profiles forward without retuning them per workload. Guarded margin-comfort probing is used as the temporal controller following Section~\ref{subsubsec:temporal-ablation}; ambiguity is enabled only in experiments explicitly evaluating or using the complete controller.
@@ -1656,7 +1667,49 @@ This subsection will compare against HeavyLocker under equal static local-memory
 
 \subsection{Hybrid Exact-Approximate Tracking}
 \label{subsec:exp-hybrid}
-This subsection will evaluate the extension of Section~\ref{sec:extensions} on workloads with persistent dominant heads and volatile residual tails. Pure approximate tracking and exact-head plus approximate-tail tracking will be compared at matched memory to determine whether removing stable head mass sharpens residual certificates and improves sizing stability.
+We next evaluate the hybrid extension of Section~\ref{sec:extensions}. The
+controller uses the quality-oriented profile from above, with
+\(\varepsilon_M=0.10\), \(\alpha=0.90\), guarded margin-comfort probing, and
+ambiguity enabled. The only change is local telemetry: the baseline uses a
+single approximate Space-Saving summary, while the hybrid tracker promotes
+\(\mathrm{Top}_n^t\cup K_+^t\cup K_?^t\) from window \(t\) into exact counters
+for window \(t+1\), then applies the same controller to the residual tail.
+
+\begin{figure*}[t]
+\centering
+\IfFileExists{figures/hybrid_ablation_quality_memory.pdf}{%
+\includegraphics[width=\textwidth]{figures/hybrid_ablation_quality_memory.pdf}%
+}{%
+\fbox{\parbox[c][1.5in][c]{0.95\textwidth}{\centering Hybrid exact--approximate tracking ablation.}}%
+}
+\caption{Hybrid exact--approximate tracking compared with the complete
+approximate controller. The hybrid variant promotes
+\(\mathrm{Top}_n^t\cup K_+^t\cup K_?^t\) into exact counters for the next
+window and sketches only the residual tail. Error is \(n\cdot\mathrm{AAE}/N\),
+memory is mean worker memory, and HH F1 is reported in percent.}
+\Description{Grouped bar charts compare approximate Space-Saving and hybrid tracking across MILP stress and persistent locality workloads for threshold-normalized error, worker memory, and heavy-hitter F1.}
+\label{fig:hybrid-ablation}
+\end{figure*}
+
+Figure~\ref{fig:hybrid-ablation} shows that the hybrid layer is most useful when
+the promoted head removes mass that would otherwise consume approximate
+capacity. On the MILP stress workloads, hybrid tracking improves the memory and
+quality dimensions at the same time: threshold-normalized error falls by
+13.6--54.2\%, while worker memory falls by 18.0--25.2\% for \(n=200\) and
+\(n=400\). This is the desired effect of the decomposition. Exact counters
+absorb keys that are persistently important or certificate-relevant, so the
+residual sketch spends its counters on a smaller and more informative tail.
+
+The persistent-locality workloads are less demanding in absolute error, so the
+interpretation is different. For \(n=100\) and \(n=200\), the hybrid tracker
+still reduces both error and memory, but the absolute error levels are already
+near zero. At \(n=400\), the baseline has no measurable AAE left to reduce; the
+hybrid variant therefore buys a perfect HH F1 score at a small memory premium.
+This is not a reason to treat hybrid tracking as the default core mechanism.
+Rather, it supports the framing of Section~\ref{sec:extensions}: when stable or
+certificate-relevant head keys exist, exact promotion can sharpen the residual
+problem, but its value depends on whether the approximate baseline is still
+spending meaningful resources on that head.
 
 \subsection{Runtime and Scalability}
 \label{subsec:exp-runtime}

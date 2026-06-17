@@ -872,6 +872,79 @@ baseline proposal \(\bar q^{t+1}\), using either the upward proposal
 current capacity. Ambiguity may then raise the baseline, producing the final
 deployed capacity \(q^{t+1}\). All other symbols in this section describe
 evidence or temporary guard state rather than additional deployed capacities.
+The controller is initialized with \(q^0=n\) and \(L^0=n\). The recovery guard
+\(g^t\) is inactive until the first failed downward probe creates a recovered
+demand to retain.
+
+\begin{figure}[t]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.35cm and 2.1cm,
+    >=Latex,
+    every node/.style={align=center},
+    state/.style={
+        draw=black!70,
+        rounded corners=4pt,
+        very thick,
+        text width=2.8cm,
+        inner sep=5pt,
+        fill=black!3,
+        font=\footnotesize
+    },
+    trans/.style={
+        font=\scriptsize\sffamily,
+        text=black!80,
+        fill=white,
+        inner sep=1.6pt
+    }
+]
+
+\node[state] (steady) {Baseline hold\\capacity \(q^t\)};
+\node[state, right=of steady] (probe) {Downward probe\\\(q_{\mathrm{probe}}^{t+1}\)};
+\node[state, below=of steady] (upward) {Upward response\\\(\max\{L^t,q_\uparrow^t\}\)};
+\node[state, below=of probe] (guard) {Guarded recovery\\hold recovered demand};
+
+\draw[->, thick, draw=black!70]
+  (steady.east) to[bend left=14]
+  node[trans] {two sufficient\\windows}
+  (probe.west);
+
+\draw[->, thick, draw=black!70]
+  (probe.west) to[bend left=14]
+  node[trans] {sufficient\\accept probe}
+  (steady.east);
+
+\draw[->, thick, draw=black!70]
+  (probe.south) --
+  node[trans] {failed probe\\fresh upward recovery}
+  (guard.north);
+
+\draw[->, thick, draw=black!70]
+  (guard.west) --
+  node[trans, sloped] {recovery\\confirmed}
+  (steady.south east);
+
+\draw[->, thick, draw=black!70]
+  (steady.south west) to[bend right=14]
+  node[trans, left] {insufficient\\\(M_\alpha^t>r_M\)}
+  (upward.north west);
+
+\draw[->, thick, draw=black!70]
+  (upward.north east) to[bend right=14]
+  node[trans, right] {deploy\\baseline}
+  (steady.south);
+
+\draw[->, thick, draw=black!70]
+  (guard.south) |- ++(0,-0.45) -|
+  node[trans, near start, below] {insufficient}
+  (upward.south);
+\end{tikzpicture}%
+}
+\caption{Lifecycle of the temporal sizing controller. Margin violations trigger immediate upward response, whereas memory release is attempted only through measured downward probes. A residual guard \(g^t\) prevents the controller from immediately repeating a failed probe below the recovered demand.}
+\Description{State-machine diagram with states for baseline hold, downward probe, upward response, and guarded recovery. Transitions show margin violations, successful probes, failed probes, and recovery confirmation.}
+\label{fig:controller-lifecycle}
+\end{figure}
 
 \subsection{Capacity-Relative Evidence}
 \label{subsec:pred-forecast}
@@ -1546,6 +1619,9 @@ but its larger capacity does not consistently produce lower error than guarded
 margin comfort.
 
 These results support guarded margin-comfort probing as the default temporal policy. The bracket variants remain diagnostic baselines, and pressure gating demonstrates that making downward release uniformly more conservative can suppress failures without improving the final tradeoff. The selected controller instead uses pressure to limit probe depth while continuing to validate every lower capacity physically.
+Appendix~\ref{app:controller-ablation-diagrams} gives compact state-machine
+diagrams for the ablation controllers, complementing the main lifecycle
+diagram in Figure~\ref{fig:controller-lifecycle}.
 
 \begin{table*}[b]
 \caption{Ambiguity-guard ablation. The left group reports operation without
@@ -1756,6 +1832,172 @@ Our predictive controller is therefore grounded in an empirical regularity that 
 
 
 \appendix
+
+\section{Temporal-Controller Ablation Diagrams}
+\label{app:controller-ablation-diagrams}
+
+Figure~\ref{fig:temporal-controller-ablation-diagrams} summarizes the
+controller variants used in Section~\ref{subsubsec:temporal-ablation}. All
+variants share the same service test and origin-aware upward response; they
+differ only in the downward-probe rule and in whether failed-probe evidence is
+retained.
+\begin{figure*}[t]
+\centering
+\begin{minipage}[t]{0.32\textwidth}
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    >=Latex,
+    every node/.style={align=center},
+    state/.style={
+        draw=black!70,
+        rounded corners=4pt,
+        very thick,
+        text width=2.8cm,
+        inner sep=5pt,
+        fill=black!3,
+        font=\small
+    },
+    trans/.style={
+        font=\footnotesize\sffamily,
+        text=black!80,
+        fill=white,
+        inner sep=2pt
+    }
+]
+\node[state] (hold) at (0,0) {Hold\\\(q^t\)};
+\node[state] (up) at (-3.2,-2.8) {Upward response\\\(\max\{L^t,q_\uparrow^t\}\)};
+\node[state] (probe) at (3.2,-2.8) {Bracket probe\\geometric midpoint};
+
+\draw[->, thick, draw=black!70]
+  (hold.south west) -- node[trans, sloped, above] {insufficient} (up.north);
+\draw[->, thick, draw=black!70]
+  (hold.south east) -- node[trans, sloped, above] {two sufficient\\windows} (probe.north);
+\draw[->, thick, draw=black!70]
+  (up.west) -- node[trans, above] {deploy} ++(-1.8,0) |- (hold.west);
+\draw[->, thick, draw=black!70]
+  (probe.east) -- node[trans, above] {sufficient\\accept} ++(1.8,0) |- (hold.east);
+\draw[->, thick, draw=black!70]
+  (probe.south) -- ++(0,-1.2) -| node[trans, pos=0.25, above] {failed probe\\update lower bound} (up.south);
+\end{tikzpicture}%
+}
+\vspace{0.4ex}
+\textbf{(a) Bracket probing}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.32\textwidth}
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    >=Latex,
+    every node/.style={align=center},
+    state/.style={
+        draw=black!70,
+        rounded corners=4pt,
+        very thick,
+        text width=2.8cm,
+        inner sep=5pt,
+        fill=black!3,
+        font=\small
+    },
+    trans/.style={
+        font=\footnotesize\sffamily,
+        text=black!80,
+        fill=white,
+        inner sep=2pt
+    }
+]
+\node[state] (hold) at (0,0) {Hold\\\(q^t\)};
+\node[state] (up) at (-3.2,-2.8) {Upward response\\\(\max\{L^t,q_\uparrow^t\}\)};
+\node[state] (probe) at (3.2,-2.8) {Bracket probe\\geometric midpoint};
+\node[state] (guard) at (3.2,-5.6) {Residual guard\\hold recovered demand};
+
+\draw[->, thick, draw=black!70]
+  (hold.south west) -- node[trans, sloped, above] {insufficient} (up.north);
+\draw[->, thick, draw=black!70]
+  (hold.south east) -- node[trans, sloped, above] {two sufficient\\windows} (probe.north);
+\draw[->, thick, draw=black!70]
+  (up.west) -- node[trans, above] {deploy} ++(-1.8,0) |- (hold.west);
+\draw[->, thick, draw=black!70]
+  (probe.east) -- node[trans, above] {sufficient\\accept} ++(1.8,0) |- (hold.east);
+\draw[->, thick, draw=black!70]
+  (probe.south) -- node[trans, right] {failed probe\\retain demand} (guard.north);
+\draw[->, thick, draw=black!70]
+  (guard.west) -| node[trans, pos=0.25, above] {insufficient} (up.south);
+\draw[->, thick, draw=black!70]
+  (guard.east) -- node[trans, above] {recovery\\confirmed} ++(3.2,0) |- (hold.east);
+\end{tikzpicture}%
+}
+\vspace{0.4ex}
+\textbf{(b) Guarded bracket probing}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.32\textwidth}
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[
+    >=Latex,
+    every node/.style={align=center},
+    state/.style={
+        draw=black!70,
+        rounded corners=4pt,
+        very thick,
+        text width=2.8cm,
+        inner sep=5pt,
+        fill=black!3,
+        font=\small
+    },
+    trans/.style={
+        font=\footnotesize\sffamily,
+        text=black!80,
+        fill=white,
+        inner sep=2pt
+    }
+]
+\node[state] (hold) at (0,0) {Hold\\\(q^t\)};
+\node[state] (up) at (-3.6,-2.8) {Upward response\\\(\max\{L^t,q_\uparrow^t\}\)};
+\node[state] (gate) at (3.6,-2.8) {Pressure gate\\\(\rho\le0.5\)?};
+\node[state] (probe) at (3.6,-5.6) {Comfort probe\\bounded midpoint};
+\node[state] (guard) at (0,-8.4) {Residual guard\\hold recovered demand};
+
+\draw[->, thick, draw=black!70]
+  (hold.south west) -- node[trans, sloped, above] {insufficient} (up.north);
+\draw[->, thick, draw=black!70]
+  (hold.south east) -- node[trans, sloped, above] {two sufficient\\windows} (gate.north);
+\draw[->, thick, draw=black!70]
+  (up.west) -- node[trans, above] {deploy} ++(-1.8,0) |- (hold.west);
+\draw[->, thick, draw=black!70]
+  (gate.east) -- node[trans, above] {\(\rho>0.5\)\\hold} ++(1.8,0) |- (hold.east);
+\draw[->, thick, draw=black!70]
+  (gate.south) -- node[trans, right] {\(\rho\le0.5\)} (probe.north);
+\draw[->, thick, draw=black!70]
+  (probe.east) -- node[trans, above] {sufficient\\accept} ++(3.2,0) |- (hold.east);
+\draw[->, thick, draw=black!70]
+  (probe.south) |- node[trans, pos=0.75, above] {failed probe\\fresh recovery} (guard.north east);
+\draw[->, thick, draw=black!70]
+  (guard.west) -| node[trans, pos=0.25, above] {insufficient} (up.south);
+\draw[->, thick, draw=black!70]
+  (guard.east) -- node[trans, above] {recovery\\confirmed} ++(6.8,0) |- (hold.east);
+\end{tikzpicture}%
+}
+\vspace{0.4ex}
+\textbf{(c) Pressure-gated comfort}
+\end{minipage}
+\caption{State-machine views of the temporal-controller ablation variants.
+Panel~(a) probes by interpolating between the failed lower boundary and the
+last sufficient capacity, but does not retain a separate residual recovery
+guard.
+Panel~(b) adds the residual guard used to retain the demand exposed by a failed
+probe. Panel~(c) keeps the comfort probe depth rule but adds a pressure veto:
+the controller may release memory only when the realized pressure ratio
+satisfies \(\rho\le0.5\), after which the ordinary bounded comfort probe and
+guard logic still apply. The proposed guarded margin-comfort controller is
+shown in Figure~\ref{fig:controller-lifecycle}.}
+\Description{Three compact state-machine diagrams show bracket probing,
+guarded bracket probing, and pressure-gated comfort probing.}
+\label{fig:temporal-controller-ablation-diagrams}
+\end{figure*}
+
 
 \section{Global-Frequency Generation}
 \label{app:global-frequency-generation}

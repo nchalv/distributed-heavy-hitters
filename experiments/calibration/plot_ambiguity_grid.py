@@ -60,6 +60,11 @@ def threshold_normalized_error(row: dict[str, str], fallback_window_size: float)
     return n * aae / window_size
 
 
+def epsilon_key(row: dict[str, str]) -> float | None:
+    epsilon_m = fnum(row, "epsilon_m")
+    return epsilon_m if math.isfinite(epsilon_m) else None
+
+
 def dataset_label(dataset: str) -> str:
     labels = {
         "persistent_ambiguity_adversary_n100": r"Persistent ambiguity, $n=100$",
@@ -94,8 +99,16 @@ def main() -> int:
 
     plt = import_matplotlib()
     datasets = sorted({row.get("dataset", "") for row in rows})
+    eps_values = sorted({
+        epsilon_key(row)
+        for row in rows
+        if epsilon_key(row) is not None
+    })
+    if not eps_values:
+        eps_values = [None]
     modes = ["baseline", "ambiguity"]
-    x_by_mode = {mode: i for i, mode in enumerate(modes)}
+    configs = [(eps, mode) for eps in eps_values for mode in modes]
+    x_by_config = {config: i for i, config in enumerate(configs)}
     colors = plt.cm.tab10([i for i in range(len(datasets))])
     color_by_dataset = {dataset: colors[i] for i, dataset in enumerate(datasets)}
 
@@ -107,9 +120,12 @@ def main() -> int:
     for dataset in datasets:
         group_rows = sorted(
             [row for row in rows if row.get("dataset", "") == dataset],
-            key=lambda row: x_by_mode[row.get("mode", "")],
+            key=lambda row: x_by_config[(epsilon_key(row), row.get("mode", ""))],
         )
-        xs = [x_by_mode[row.get("mode", "")] for row in group_rows]
+        xs = [
+            x_by_config[(epsilon_key(row), row.get("mode", ""))]
+            for row in group_rows
+        ]
         ys_err = [threshold_normalized_error(row, args.window_size) for row in group_rows]
         ys_mem = [fnum(row, "q_mean") / fnum(row, "n") for row in group_rows]
         ys_amb = [fnum(row, "ambiguous_count") for row in group_rows]
@@ -127,8 +143,13 @@ def main() -> int:
     ax_act.set_title("(d) Ambiguity actuation rate", fontsize=9.5)
     for ax in axes.flat:
         ax.grid(True, alpha=0.3)
-        ax.set_xticks(range(len(modes)))
-        ax.set_xticklabels(["Baseline", "Ambiguity guard"])
+        ax.set_xticks(range(len(configs)))
+        labels = []
+        for eps, mode in configs:
+            prefix = rf"$\epsilon_M={eps:.2f}$" if eps is not None else ""
+            suffix = "Off" if mode == "baseline" else "On"
+            labels.append(f"{prefix}\n{suffix}")
+        ax.set_xticklabels(labels)
         ax.tick_params(labelsize=8)
         ax.spines["top"].set_visible(False)
         ax.spines["right"].set_visible(False)

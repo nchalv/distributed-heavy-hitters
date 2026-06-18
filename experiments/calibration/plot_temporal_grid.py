@@ -155,13 +155,13 @@ def plot_stepwise(
             "Residual-guarded bracket probing",
             "#6F4E7C",
         ),
-        "comfort_guided_probing": (
-            "Guarded margin-comfort probing",
-            "#287271",
-        ),
         "pressure_gated_comfort_probing": (
             r"Pressure gate $\rho\leq0.5$",
             "#3264A8",
+        ),
+        "comfort_guided_probing": (
+            "Guarded margin-comfort probing (default)",
+            "#287271",
         ),
     }
     phase_specs = {
@@ -344,8 +344,13 @@ def plot_stepwise(
                 fontsize=8.5,
             )
 
-        for column_idx, (_, (mode_label, _)) in enumerate(mode_specs.items()):
-            axes[0, column_idx].set_title(mode_label, fontsize=10, pad=7)
+        for column_idx, (mode, (mode_label, _)) in enumerate(mode_specs.items()):
+            axes[0, column_idx].set_title(
+                mode_label,
+                fontsize=10,
+                pad=7,
+                fontweight="bold" if mode == "comfort_guided_probing" else "normal",
+            )
             axes[-1, column_idx].set_xlabel("Window", fontsize=9)
         legend_handles = list(phase_handles)
         if stem == "error":
@@ -662,15 +667,15 @@ def main() -> int:
             -0.09,
         ),
         (
-            "comfort_guided_probing",
-            "Guarded margin comfort",
-            "#287271",
-            0.09,
-        ),
-        (
             "pressure_gated_comfort_probing",
             r"Pressure gate $\rho\leq0.5$",
             "#3264A8",
+            0.09,
+        ),
+        (
+            "comfort_guided_probing",
+            "Guarded margin comfort (default)",
+            "#287271",
             0.27,
         ),
     ]

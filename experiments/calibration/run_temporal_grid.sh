@@ -21,7 +21,7 @@ EPSILON_M="${EPSILON_M:-0.10}"
 ALPHA_REQ="${ALPHA_REQ:-0.90}"
 
 SS_EPS="${SS_EPS:-per-item}"
-RUN_MODES=(${RUN_MODES:-probing residual_guarded_probing comfort_guided_probing pressure_gated_comfort_probing})
+RUN_MODES=(${RUN_MODES:-probing residual_guarded_probing pressure_gated_comfort_probing comfort_guided_probing})
 CLEAN_OUTPUT="${CLEAN_OUTPUT:-1}"
 DRY_RUN="${DRY_RUN:-0}"
 
@@ -76,7 +76,7 @@ if [[ "${DRY_RUN}" != "1" ]]; then
     printf 'alpha=%s\n' "${ALPHA_REQ}"
     printf 'memory_kib=%s\n' "${MEM_KIB}"
     printf 'topk=%s\n' "${TOPK}"
-    printf 'modes=probing residual_guarded_probing comfort_guided_probing pressure_gated_comfort_probing\n'
+    printf 'modes=probing residual_guarded_probing pressure_gated_comfort_probing comfort_guided_probing\n'
     printf 'executed_modes=%s\n' "${RUN_MODES[*]}"
     printf 'sufficient_observations=2\n'
     printf 'ambiguity_adjustment=off\n'

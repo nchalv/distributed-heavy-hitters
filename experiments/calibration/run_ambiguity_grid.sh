@@ -17,8 +17,12 @@ M="${M:-100}"
 MEM_KIB="${MEM_KIB:-128}"
 TOPK="${TOPK:-200}"
 
-EPSILON_M="${EPSILON_M:-0.10}"
-ALPHA_REQ="${ALPHA_REQ:-0.90}"
+if [[ -n "${EPSILON_M_VALUES:-}" ]]; then
+  read -r -a EPSILON_M_GRID <<< "${EPSILON_M_VALUES}"
+else
+  EPSILON_M_GRID=(${EPSILON_M:-0.10})
+fi
+ALPHA_REQ="${ALPHA_REQ:-0.95}"
 AMBIGUITY_BETA="${AMBIGUITY_BETA:-0.50}"
 SS_EPS="${SS_EPS:-per-item}"
 
@@ -68,7 +72,7 @@ if [[ "${DRY_RUN}" != "1" ]]; then
     printf 'experiment=ambiguity_guard_ablation\n'
     printf 'datasets=%s\n' "${DATASETS[*]}"
     printf 'm=%s\n' "${M}"
-    printf 'epsilon_m=%s\n' "${EPSILON_M}"
+    printf 'epsilon_m_values=%s\n' "${EPSILON_M_GRID[*]}"
     printf 'alpha=%s\n' "${ALPHA_REQ}"
     printf 'ambiguity_beta=%s\n' "${AMBIGUITY_BETA}"
     printf 'temporal_controller=guarded_margin_comfort\n'
@@ -93,38 +97,41 @@ for dataset in "${DATASETS[@]}"; do
     exit 1
   fi
 
-  r_m="$(awk -v epsilon_m="${EPSILON_M}" -v n="${n_param}" 'BEGIN { printf "%.10g", epsilon_m / n }')"
-  for mode in "${RUN_MODES[@]}"; do
-    case "${mode}" in
-      baseline) amb_adjust=off ;;
-      ambiguity) amb_adjust=on ;;
-      *)
-        echo "unknown mode: ${mode}; expected baseline or ambiguity" >&2
-        exit 1
-        ;;
-    esac
+  for epsilon_m in "${EPSILON_M_GRID[@]}"; do
+    r_m="$(awk -v epsilon_m="${epsilon_m}" -v n="${n_param}" 'BEGIN { printf "%.10g", epsilon_m / n }')"
+    epsilon_tag="$(printf '%s' "${epsilon_m}" | tr -c '[:alnum:]' '_')"
+    for mode in "${RUN_MODES[@]}"; do
+      case "${mode}" in
+        baseline) amb_adjust=off ;;
+        ambiguity) amb_adjust=on ;;
+        *)
+          echo "unknown mode: ${mode}; expected baseline or ambiguity" >&2
+          exit 1
+          ;;
+      esac
 
-    method="oracle,ss[policy=difficulty alpha-req=${ALPHA_REQ} r-m=${r_m} res-guard-window=2 res-guard-decay=${AMBIGUITY_BETA} downward-probing=on probe-residual-guard=on probe-strategy=comfort probe-pressure-gate=0.5 amb-adjust=${amb_adjust} diff-mode=predictive ss-eps=${SS_EPS}]"
-    csv_out="${CSV_DIR}/${dataset}_${mode}.csv"
+      method="oracle,ss[policy=difficulty alpha-req=${ALPHA_REQ} r-m=${r_m} res-guard-window=2 res-guard-decay=${AMBIGUITY_BETA} downward-probing=on probe-residual-guard=on probe-strategy=comfort probe-pressure-gate=0.5 amb-adjust=${amb_adjust} diff-mode=predictive ss-eps=${SS_EPS}]"
+      csv_out="${CSV_DIR}/${dataset}_eps${epsilon_tag}_${mode}.csv"
 
-    echo "running ambiguity ablation: dataset=${dataset}, n=${n_param}, mode=${mode}"
-    command=(
-      "${HH_BENCH}"
-      "${stream}"
-      "${M}"
-      "${n_param}"
-      "${MEM_KIB}"
-      "${method}"
-      --topk "${TOPK}"
-      --csv-out "${csv_out}"
-    )
-    if [[ "${DRY_RUN}" == "1" ]]; then
-      printf '  '
-      printf '%q ' "${command[@]}"
-      printf '\n'
-    else
-      "${command[@]}"
-    fi
+      echo "running ambiguity ablation: dataset=${dataset}, n=${n_param}, epsilon_m=${epsilon_m}, mode=${mode}"
+      command=(
+        "${HH_BENCH}"
+        "${stream}"
+        "${M}"
+        "${n_param}"
+        "${MEM_KIB}"
+        "${method}"
+        --topk "${TOPK}"
+        --csv-out "${csv_out}"
+      )
+      if [[ "${DRY_RUN}" == "1" ]]; then
+        printf '  '
+        printf '%q ' "${command[@]}"
+        printf '\n'
+      else
+        "${command[@]}"
+      fi
+    done
   done
 done
 

@@ -17,8 +17,8 @@ M="${M:-100}"
 MEM_KIB="${MEM_KIB:-128}"
 TOPK="${TOPK:-200}"
 
-EPSILON_M="${EPSILON_M:-0.10}"
-ALPHA_REQ="${ALPHA_REQ:-0.90}"
+EPSILON_M="${EPSILON_M:-0.15}"
+ALPHA_REQ="${ALPHA_REQ:-0.95}"
 AMBIGUITY_BETA="${AMBIGUITY_BETA:-0.50}"
 SS_EPS="${SS_EPS:-per-item}"
 
@@ -57,6 +57,7 @@ if [[ "${DRY_RUN}" != "1" ]]; then
   if [[ "${CLEAN_OUTPUT}" == "1" ]]; then
     rm -rf \
       "${CSV_DIR}" \
+      "${OUT_DIR}/plots" \
       "${OUT_DIR}/summary.csv" \
       "${OUT_DIR}/configuration.txt"
   fi
@@ -135,4 +136,9 @@ python3 experiments/calibration/summarize_hybrid_ablation.py \
   --root "${CSV_DIR}" \
   > "${OUT_DIR}/summary.csv"
 
+python3 experiments/calibration/plot_hybrid_ablation.py \
+  --summary "${OUT_DIR}/summary.csv" \
+  --out "${OUT_DIR}/plots"
+
 echo "summary: ${OUT_DIR}/summary.csv"
+echo "plots: ${OUT_DIR}/plots"

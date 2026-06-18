@@ -17,6 +17,7 @@ ROOT = Path("experiments/calibration/ambiguity_guard_ablation/csv")
 FIELDS = [
     "dataset",
     "n",
+    "epsilon_m",
     "mode",
     "windows",
     "N_global",
@@ -66,10 +67,16 @@ def avg(rows: list[dict[str, str]], key: str) -> float:
     return mean(vals) if vals else math.nan
 
 
-def parse_name(path: Path) -> tuple[str, str] | None:
+def parse_name(path: Path) -> tuple[str, str, float] | None:
+    match = re.match(r"(.+)_eps([0-9_]+)_(baseline|ambiguity)$", path.stem)
+    if match:
+        dataset, epsilon_tag, mode = match.groups()
+        epsilon_m = float(epsilon_tag.replace("_", ".").rstrip("."))
+        return dataset, mode, epsilon_m
     match = re.match(r"(.+)_(baseline|ambiguity)$", path.stem)
     if match:
-        return match.groups()
+        dataset, mode = match.groups()
+        return dataset, mode, math.nan
     return None
 
 
@@ -84,7 +91,7 @@ def summarize_file(path: Path, default_n: int) -> dict[str, object]:
     parsed = parse_name(path)
     if parsed is None:
         raise ValueError(f"unexpected ambiguity calibration CSV name: {path.name}")
-    dataset, mode = parsed
+    dataset, mode, epsilon_m = parsed
     n = infer_n(dataset, default_n)
     with path.open(newline="", encoding="utf-8") as fh:
         rows = [
@@ -95,6 +102,10 @@ def summarize_file(path: Path, default_n: int) -> dict[str, object]:
 
     if not rows:
         raise ValueError(f"no difficulty-policy Space-Saving rows found in {path}")
+    if not math.isfinite(epsilon_m):
+        method = rows[0].get("method", "")
+        match = re.search(r"r-m=([0-9.eE+-]+)", method)
+        epsilon_m = float(match.group(1)) * n if match else math.nan
 
     q_vals = [parse_value(row, "q_current") for row in rows]
     q_vals = [value for value in q_vals if math.isfinite(value)]
@@ -111,6 +122,7 @@ def summarize_file(path: Path, default_n: int) -> dict[str, object]:
     return {
         "dataset": dataset,
         "n": n,
+        "epsilon_m": epsilon_m,
         "mode": mode,
         "windows": len(rows),
         "N_global": avg(rows, "N_global"),

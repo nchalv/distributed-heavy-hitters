@@ -16,7 +16,7 @@ DEFAULT_SUMMARIES = [
 DEFAULT_OUT = Path("experiments/calibration/margin_service_calibration/plots")
 DEFAULT_WINDOW_SIZE = 60000.0
 Y_LABEL = "Threshold-normalized error"
-QUALITY_PAIR = (0.10, 0.90)
+QUALITY_PAIR = (0.10, 0.95)
 MEMORY_PAIR = (0.15, 0.95)
 
 
@@ -231,7 +231,7 @@ def main() -> int:
             facecolors="none",
             edgecolor="#111111",
             linewidth=1.15,
-            label=r"quality-oriented $(0.10,0.9)$",
+            label=r"quality-oriented $(0.10,0.95)$",
         ),
         axes[0].scatter(
             [],

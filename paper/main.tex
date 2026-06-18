@@ -23,6 +23,7 @@
 \usepackage{enumitem}
 \usepackage{tabularx}
 \usepackage{booktabs}
+\usepackage{dcolumn}
 %\usepackage{algorithmic}
 % Typography + line breaking
 \usepackage{microtype}           % better kerning, fewer overfull boxes
@@ -1367,8 +1368,8 @@ k \in \mathrm{keys}(\mathcal S_{i,\mathrm{res}}^t).
 }{%
 \fbox{\parbox[c][1.2in][c]{0.95\textwidth}{\centering Margin and service-fraction topology frontier.}}%
 }
-\caption{Margin and service-fraction calibration under the residual-guarded probing controller on MILP stress workloads with \(m=100\) and \(n\in\{100,200,400\}\). Each point reports mean deployed capacity \(q/n\) and threshold-normalized error \(n\cdot\mathrm{AAE}/N\). The black ring marks the quality-oriented profile \((\varepsilon_M,\alpha)=(0.10,0.90)\); the gray ring marks the memory-oriented profile \((0.15,0.95)\). All panels use the same vertical scale.}
-\Description{Three-panel scatter plot of threshold-normalized error against normalized deployed capacity for n equal to 100, 200, and 400. Black rings identify the quality-oriented configuration epsilon M 0.10 and alpha 0.90. Gray rings identify the memory-oriented configuration epsilon M 0.15 and alpha 0.95.}
+\caption{Margin and service-fraction calibration under the residual-guarded probing controller on MILP stress workloads with \(m=100\) and \(n\in\{100,200,400\}\). Each point reports mean deployed capacity \(q/n\) and threshold-normalized error \(n\cdot\mathrm{AAE}/N\). The black ring marks the quality-oriented profile \((\varepsilon_M,\alpha)=(0.10,0.95)\); the gray ring marks the memory-oriented profile \((0.15,0.95)\). All panels use the same vertical scale.}
+\Description{Three-panel scatter plot of threshold-normalized error against normalized deployed capacity for n equal to 100, 200, and 400. Black rings identify the quality-oriented configuration epsilon M 0.10 and alpha 0.95. Gray rings identify the memory-oriented configuration epsilon M 0.15 and alpha 0.95.}
 \label{fig:margin-service-frontier}
 \end{figure*}
 
@@ -1541,35 +1542,44 @@ The sweep evaluates
 \qquad
 \alpha\in\{0.90,0.95,0.98,0.995\}
 \]
-for each \(n\in\{100,200,400\}\). Every combination processes the same ordered windows from a fresh \(q^0=n\). The experiment fixes residual-guarded bracket probing throughout: upward response, downward probing after two sufficient observations, and failed-probe residual guarding are enabled. Holding the temporal mechanism fixed prevents the parameter sweep from conflating the service objective with probe-policy selection. Ambiguity adjustment is disabled.
+for each \(n\in\{100,200,400\}\). Every combination processes the same ordered windows from a fresh \(q^0=n\). The experiment fixes guarded margin-comfort probing throughout: upward response, downward probing after two sufficient observations, bounded comfort probes, and failed-probe residual guarding are enabled. Holding the temporal mechanism fixed prevents the parameter sweep from conflating the service objective with probe-policy selection. Ambiguity adjustment is disabled.
 
-Figure~\ref{fig:margin-service-frontier} shows the resulting memory--accuracy frontier. The shared vertical scale is deliberate: the \(n=400\) points occupy a narrow low-error band, whereas the smaller-\(n\) workloads distinguish the looser margin settings more sharply. Across all \(\alpha\) values and topologies, the mean \(q/n\) decreases from \(1.70\) at \(\varepsilon_M=0.10\) to \(1.41\), \(1.33\), and \(1.19\) at \(0.15\), \(0.20\), and \(0.25\), respectively. The corresponding mean threshold-normalized errors are \(0.00165\), \(0.00785\), \(0.01050\), and \(0.02138\). Thus \(\varepsilon_M\) is the primary quality--memory control: \(0.10\) defines a visibly stricter accuracy regime, while \(0.25\) releases memory at a substantial quality cost.
+Figure~\ref{fig:margin-service-frontier} shows the resulting memory--accuracy frontier. The shared vertical scale is deliberate: the \(n=400\) points occupy a narrow low-error band, whereas the smaller-\(n\) workloads distinguish the looser margin settings more sharply. Across all \(\alpha\) values and topologies, the mean \(q/n\) decreases from \(1.80\) at \(\varepsilon_M=0.10\) to \(1.45\), \(1.27\), and \(1.11\) at \(0.15\), \(0.20\), and \(0.25\), respectively. The corresponding mean threshold-normalized errors are \(0.00221\), \(0.00782\), \(0.01394\), and \(0.03229\). Thus \(\varepsilon_M\) is the primary quality--memory control: \(0.10\) defines a visibly stricter accuracy regime, while \(0.25\) releases memory at a substantial quality cost.
 
-The effect of \(\alpha\) is secondary and is not monotone under closed-loop control. Changing the service quantile can alter an early upward response or probe outcome, which changes the capacity at which later telemetry is collected. Consequently, adjacent \(\alpha\) values may follow different trajectories even though the service statistic itself is an ordered quantile. At the strict margin \(\varepsilon_M=0.10\), \(\alpha=0.90\) already produces uniformly low error and avoids paying for a more aggressive service fraction. At \(\varepsilon_M=0.15\), \(\alpha=0.95\) gives the lowest cross-topology mean error among the four service fractions without adopting the largest \(\alpha\).
+The effect of \(\alpha\) is secondary and is not monotone under closed-loop control. Changing the service quantile can alter an early upward response or probe outcome, which changes the capacity at which later telemetry is collected. Consequently, adjacent \(\alpha\) values may follow different trajectories even though the service statistic itself is an ordered quantile. At the strict margin \(\varepsilon_M=0.10\), \(\alpha=0.95\) is a useful compromise: it serves a broader frontier than \(\alpha=0.90\), while avoiding the extra capacity paid by the most extreme service fractions. At \(\varepsilon_M=0.15\), the same \(\alpha=0.95\) keeps the memory-oriented profile on the low-error side of the looser-margin frontier.
 
-We promote two operating choices. The pair \((0.10,0.90)\) is the
-\emph{quality-oriented} profile: it applies a strict margin to \(90\%\) of the
-realized frontier and yields consistently low error without relying on an
-extreme service quantile. The \emph{memory-oriented} profile
-\((0.15,0.95)\) lowers mean \(q/n\) by approximately \(17\%\), \(13\%\), and
-\(9\%\) for \(n=100,200,400\), respectively, while accepting higher error.
-The quality-oriented profile is the primary configuration in
-accuracy-sensitive comparisons; the memory-oriented profile is reported where
-the objective is to expose a more aggressive memory--quality tradeoff.
+We retain two operating choices. The pair \((0.10,0.95)\) is the
+\emph{quality-oriented} profile: it applies a strict margin to \(95\%\) of the
+realized frontier and gives a balanced low-error operating point without paying
+the extra capacity of the near-worst-case service fractions. The
+\emph{memory-oriented} profile \((0.15,0.95)\) keeps the same service fraction
+but relaxes the margin budget, lowering mean \(q/n\) by approximately \(13\%\),
+\(17\%\), and \(3\%\) for \(n=100,200,400\), respectively, while accepting
+higher error. At this stage neither profile is declared universal: the
+quality-oriented profile is used to select the temporal controller under a
+strict service objective, while the memory-oriented profile becomes relevant
+once ambiguity actuation is allowed to spend memory selectively.
 
 
 
 \subsubsection{Temporal-Controller Ablation}
 \label{subsubsec:temporal-ablation}
-We next isolate the temporal release mechanism using the quality-oriented profile \((\varepsilon_M,\alpha)=(0.10,0.90)\), with ambiguity adjustment disabled. Every variant starts from \(q^0=n\), applies the same origin-aware upward response when \(M_\alpha^t>r_M\), and requires two consecutive sufficient observations before attempting a downward probe. The variants differ only in how the probe is selected and how failed-probe evidence is retained.
+We next isolate the temporal release mechanism using the quality-oriented
+profile \((\varepsilon_M,\alpha)=(0.10,0.95)\), with
+ambiguity adjustment disabled. Every variant starts from \(q^0=n\), applies the
+same origin-aware upward response when \(M_\alpha^t>r_M\), and requires two
+consecutive sufficient observations before attempting a downward probe. The
+variants differ only in how the probe is selected and how failed-probe evidence
+is retained.
 
 
 
 The ablation compares four variants. \emph{Bracket probing} uses the geometric
-midpoint of its observed capacity bracket and discards failed-probe evidence.
-\emph{Guarded bracket probing} retains the upward demand exposed by a failed
-probe until recovery is confirmed. \emph{Guarded margin comfort} keeps that
-guard but replaces bracket interpolation with the capped arithmetic probe of
+midpoint of its observed capacity bracket and updates the failed lower
+boundary, but does not retain a separate recovered-demand guard. \emph{Guarded
+bracket probing} retains the upward demand exposed by a failed probe until
+recovery is confirmed. \emph{Guarded margin comfort} keeps that guard but
+replaces bracket interpolation with the capped arithmetic probe of
 Equation~\eqref{eq:comfort-probe}. Finally, \emph{pressure-gated comfort}
 also vetoes a probe when \(\rho>0.5\). The pressure gate is an ablation
 mechanism rather than part of the proposed controller.
@@ -1589,6 +1599,34 @@ pair holds temporal structure fixed and isolates the effect of partitioning
 difficulty. Keeping the groups separate avoids treating stationary controls as
 additional temporal profiles or obscuring transition behavior through a
 six-workload average.
+
+\begin{table}[t]
+\centering
+\caption{Aggregate temporal-controller ablation over the four scheduled
+profiles and two stationary controls. Arrows indicate whether lower or higher
+values are preferable.}
+\label{tab:temporal-controller-aggregate}
+\begin{tabular}{lccc}
+\toprule
+Policy & Error \(\downarrow\) & \(q/n\) \(\downarrow\) & HH F1 \(\uparrow\) \\
+\midrule
+Bracket probing & 0.01403 & \textbf{1.537} & 0.9802 \\
+Guarded bracket & 0.01356 & 1.569 & 0.9816 \\
+Pressure-gated comfort & 0.01239 & 1.712 & 0.9872 \\
+Guarded margin comfort & \textbf{0.01001} & 1.730 & \textbf{0.9908} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:temporal-controller-aggregate} summarizes the aggregate
+tradeoff. Bracket probing is the least expensive policy, but it gives up
+accuracy. Adding the residual guard improves quality slightly, but the
+geometric bracket can still revisit unsafe reductions. Pressure-gated comfort
+reduces failed probes and improves quality, but the gate also makes release
+uniformly reluctant. Guarded margin comfort spends slightly more memory than
+pressure-gated comfort, yet gives the lowest threshold-normalized error and
+the best heavy-hitter F1 across the combined workload set. This is the reason
+it is selected as the default temporal policy.
 
 
 
@@ -1618,61 +1656,64 @@ same sawtooth cycle. Pressure gating is the most reluctant to release memory,
 but its larger capacity does not consistently produce lower error than guarded
 margin comfort.
 
-These results support guarded margin-comfort probing as the default temporal policy. The bracket variants remain diagnostic baselines, and pressure gating demonstrates that making downward release uniformly more conservative can suppress failures without improving the final tradeoff. The selected controller instead uses pressure to limit probe depth while continuing to validate every lower capacity physically.
+These results support guarded margin-comfort probing as the default temporal
+policy. The bracket variants remain diagnostic baselines, and pressure gating
+demonstrates that making downward release uniformly more conservative can
+suppress failures without matching the final quality tradeoff. The selected
+controller instead uses pressure to limit probe depth while continuing to
+validate every lower capacity physically.
 Appendix~\ref{app:controller-ablation-diagrams} gives compact state-machine
 diagrams for the ablation controllers, complementing the main lifecycle
 diagram in Figure~\ref{fig:controller-lifecycle}.
 
 \begin{table*}[b]
-\caption{Ambiguity-guard ablation. The left group reports operation without
-the guard. The right group reports operation with the guard, followed by the
-change relative to the baseline in parentheses. Header arrows indicate the
-preferred direction for each metric. Error is \(n\cdot\mathrm{AAE}/N\), HH F1
-is reported in percent, and Act. is the fraction of windows in which the
-ambiguity target exceeds the temporal baseline.}
+\caption{Ambiguity-guard ablation under the quality-oriented and
+memory-oriented margin profiles. Header arrows indicate whether lower or
+higher values are preferable. Error is \(10^3 n\cdot\mathrm{AAE}/N\), and HH
+F1 is reported on a 0--100 scale.}
 \label{tab:ambiguity-ablation}
 \centering
-\scriptsize
-\setlength{\tabcolsep}{3.6pt}
-\renewcommand{\arraystretch}{1.08}
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lcrrrrrrrrrr@{}}
+\small
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.04}
+\begin{tabular*}{0.92\textwidth}{@{\extracolsep{\fill}}llccD{.}{.}{2.5}rr@{}}
 \toprule
-& &
-\multicolumn{4}{c}{Guard off} &
-\multicolumn{5}{c}{Guard on (change)} \\
-\cmidrule(lr){3-6}\cmidrule(l){7-11}
-Workload & \(n\) &
-Error \(\downarrow\) &
+Workload & \(n\) & \(\varepsilon_M\) & Guard &
+\multicolumn{1}{c}{Error \((10^{-3})\downarrow\)} &
 \(\overline q/n\;\downarrow\) &
-HH F1 (\%) \(\uparrow\) &
-\(\overline{|K_?|}\;\downarrow\) &
-Error \(\downarrow\) &
-\(\overline q/n\;\downarrow\) &
-HH F1 (\%) \(\uparrow\) &
-\(\overline{|K_?|}\;\downarrow\) &
-Act. \\
+HH F1 (\%) \(\uparrow\) \\
 \midrule
-MILP stress
-& 100 & \(4.07{\times}10^{-3}\) & 1.55 & 97.3 & 12.77 &
-\(7.26{\times}10^{-4}\;(-82.1\%)\) & \(2.24\;(+44.6\%)\) &
-\(99.7\;(+2.4)\) & \(1.58\;(-87.6\%)\) & 100.0\% \\
-& 200 & \(1.73{\times}10^{-3}\) & 1.82 & 98.9 & 25.15 &
-\(6.84{\times}10^{-4}\;(-60.4\%)\) & \(2.11\;(+15.9\%)\) &
-\(99.7\;(+0.7)\) & \(3.80\;(-84.9\%)\) & 100.0\% \\
-& 400 & \(9.71{\times}10^{-4}\) & 2.21 & 98.4 & 8.03 &
-\(6.54{\times}10^{-4}\;(-32.7\%)\) & \(2.35\;(+6.3\%)\) &
-\(98.8\;(+0.4)\) & \(7.36\;(-8.3\%)\) & 100.0\% \\
+MILP stress & 100 & 0.10 & off & 4.65 & 1.46 & 97.0 \\
+            &     &      & on  & 0.747 & 2.25 & 99.7 \\
+            &     & 0.15 & off & 13.4 & 1.27 & 93.7 \\
+            &     &      & on  & 0.706 & 2.11 & 99.6 \\
+\addlinespace[1pt]
+            & 200 & 0.10 & off & 1.79 & 1.81 & 98.9 \\
+            &     &      & on  & 0.935 & 1.97 & 99.7 \\
+            &     & 0.15 & off & 7.17 & 1.50 & 97.0 \\
+            &     &      & on  & 0.892 & 2.11 & 99.6 \\
+\addlinespace[1pt]
+            & 400 & 0.10 & off & 1.22 & 1.66 & 97.9 \\
+            &     &      & on  & 1.05 & 2.49 & 98.5 \\
+            &     & 0.15 & off & 1.77 & 1.60 & 97.3 \\
+            &     &      & on  & 1.03 & 1.89 & 97.9 \\
 \addlinespace[2pt]
+\midrule
 Persistent locality
-& 100 & \(1.92{\times}10^{-5}\) & 1.22 & 97.6 & 4.82 &
-\(2.02{\times}10^{-6}\;(-89.5\%)\) & \(1.67\;(+37.0\%)\) &
-\(99.7\;(+2.1)\) & \(0.61\;(-87.4\%)\) & 100.0\% \\
-& 200 & \(1.47{\times}10^{-5}\) & 1.12 & 97.5 & 4.19 &
-\(3.20{\times}10^{-6}\;(-78.2\%)\) & \(1.22\;(+9.6\%)\) &
-\(98.5\;(+1.0)\) & \(2.45\;(-41.4\%)\) & 97.3\% \\
-& 400 & \(1.44{\times}10^{-6}\) & 1.00 & 98.6 & 6.16 &
-\(0\;(-100.0\%)\) & \(1.02\;(+1.6\%)\) &
-\(98.9\;(+0.4)\) & \(4.70\;(-23.7\%)\) & 94.5\% \\
+            & 100 & 0.10 & off & 0.0192 & 1.20 & 97.5 \\
+            &     &      & on  & 0.00202 & 1.68 & 99.7 \\
+            &     & 0.15 & off & 0.0197 & 1.14 & 97.6 \\
+            &     &      & on  & 0.00202 & 1.64 & 99.7 \\
+\addlinespace[1pt]
+            & 200 & 0.10 & off & 0.0147 & 1.12 & 97.5 \\
+            &     &      & on  & 0.00320 & 1.22 & 98.5 \\
+            &     & 0.15 & off & 0.0177 & 1.04 & 97.3 \\
+            &     &      & on  & 0.00320 & 1.14 & 98.5 \\
+\addlinespace[1pt]
+            & 400 & 0.10 & off & 0.00144 & 1.00 & 98.6 \\
+            &     &      & on  & 0 & 1.02 & 98.9 \\
+            &     & 0.15 & off & 0.00144 & 1.00 & 98.6 \\
+            &     &      & on  & 0 & 1.02 & 98.9 \\
 \bottomrule
 \end{tabular*}
 \end{table*}
@@ -1680,11 +1721,15 @@ Persistent locality
 \subsubsection{Ambiguity-Guard Ablation}
 \label{subsubsec:ambiguity-ablation}
 We finally isolate the ambiguity adjustment of Section~\ref{subsec:ambiguity}.
-Both variants use the quality-oriented profile
-\((\varepsilon_M,\alpha)=(0.10,0.90)\) and guarded margin-comfort probing; they
-differ only in whether the materiality--cost ambiguity frontier is allowed to
-raise the baseline target. We evaluate the pair on the MILP stress workloads
-from Section~\ref{subsubsec:margin-service-calibration} and on matched
+We now revisit both margin profiles from
+Section~\ref{subsubsec:margin-service-calibration}. For each
+\(\varepsilon_M\in\{0.10,0.15\}\), with \(\alpha=0.95\) fixed, we run guarded
+margin-comfort probing with and without the materiality--cost ambiguity
+frontier. The goal is not only to ask whether ambiguity helps, but also whether
+it can replace part of the cost of a globally tight margin by spending extra
+memory only on threshold-crossing certificate uncertainty. We evaluate the
+pair on the MILP stress workloads from
+Section~\ref{subsubsec:margin-service-calibration} and on matched
 persistent-locality ambiguity-stress workloads. The latter preserve stable
 per-key partition affinities across windows, as described in
 Appendix~\ref{app:persistent-locality}. Each experiment contains 110 windows
@@ -1693,41 +1738,45 @@ persistence factor \(\beta=0.5\).
 
 
 
-Table~\ref{tab:ambiguity-ablation} should be read as an actionability test for
-threshold-crossing uncertainty. On the MILP stress workloads, unresolved
-certificates are not merely present; they remain wide enough that extra local
-memory changes the downstream decision quality. The guard therefore converts a
-large fraction of ambiguous candidates into sharper certificates, and this is
-reflected in both lower threshold-normalized error and higher HH F1. The
-effect is strongest at \(n=100\) and \(n=200\), where the baseline controller
-still leaves substantial certificate geometry unresolved. At \(n=400\), the
-baseline already operates at a higher normalized capacity, so the same
-ambiguity signal has less room to improve quality and induces only a modest
-additional memory cost.
+Table~\ref{tab:ambiguity-ablation} shows that ambiguity actuation changes the
+role of the margin profile. Without the guard, relaxing the margin from
+\(\varepsilon_M=0.10\) to \(0.15\) predictably lowers memory and worsens error.
+With the guard enabled, the memory-oriented profile recovers most of the lost
+quality by targeting the keys whose certificates actually cross the
+heavy-hitter threshold. On the MILP stress workloads, \((0.15,0.95)\) with
+ambiguity reaches nearly the same error as \((0.10,0.95)\) with ambiguity for
+\(n=100\) and \(n=200\), and uses much less memory than the strict
+ambiguity-enabled profile for \(n=400\). The tradeoff is that dense
+adversarial ambiguity can still be expensive: compared with the strict
+guard-disabled baseline, the ambiguity-enabled memory-oriented profile spends
+more memory in exchange for higher HH F1 and lower error.
 
-The persistent-locality workloads expose the other side of the design. They
-also contain repeated threshold-crossing ambiguity, but the baseline frequency
-error is already very small. In that regime, percentage error reductions can
-look large while the absolute improvement is less important. The more useful
-observation is that the guard does not behave like a fixed surcharge: as the
-baseline becomes sufficient, the selected lift contracts sharply, from a
-visible premium at \(n=100\) to almost no added capacity at \(n=400\). In all
-cases the unresolved candidate set shrinks and F1 improves.
+The persistent-locality workloads provide the cleaner operating point for the
+full controller. These streams preserve repeated local hot spots, so ambiguity
+is not a one-window artifact; it is stable enough that resolving it is useful.
+Here the memory-oriented profile with ambiguity essentially matches the
+quality of the strict ambiguity-enabled profile while using less memory for
+\(n=100\) and \(n=200\), and the two are identical at \(n=400\). This is the
+behavior the guard is designed to provide: ordinary frequency-estimation slack
+is controlled by a moderate margin, while extra memory is spent only when
+deterministic certificates show unresolved threshold-crossing structure.
 
-Actuation is frequent because the workloads deliberately maintain ambiguous
-near-threshold structure and because the ambiguity margin persists briefly
-across adjacent windows. Frequent actuation, however, is not equivalent to
-uncontrolled memory growth. The materiality--cost frontier raises capacity
-only when the unresolved certificates it can resolve justify the proportional
-increase over the temporal baseline. When ambiguity has largely been resolved
-already, the same rule does not keep spending memory arbitrarily; the remaining
-gain is limited, so the selected lift becomes marginal. The ablation therefore
-supports the guard as a conditional refinement of the complete controller: it
-is valuable when ambiguity is both observed and actionable, and its overhead
-contracts when the baseline already provides adequate resolution.
+We therefore use \((\varepsilon_M,\alpha)=(0.15,0.95)\) with ambiguity enabled
+as the complete-controller operating point in the remaining experiments. The
+quality-oriented \((0.10,0.95)\) profile remains useful as a strict reference
+and was intentionally used in Section~\ref{subsubsec:temporal-ablation} to
+choose the temporal release policy under a demanding service target. Once the
+temporal policy is fixed, however, the ambiguity guard gives the controller a
+more targeted way to spend memory than globally tightening the margin for all
+HH-relevant candidates.
 
 \subsubsection{Selected Operating Profiles}
-The remainder of the evaluation carries the quality-oriented and memory-oriented margin profiles forward without retuning them per workload. Guarded margin-comfort probing is used as the temporal controller following Section~\ref{subsubsec:temporal-ablation}; ambiguity is enabled only in experiments explicitly evaluating or using the complete controller.
+The configured controller now has two named profiles. The quality-oriented
+profile \((0.10,0.95)\) is the strict reference used to select temporal
+probing behavior. The complete adaptive controller uses the memory-oriented
+profile \((0.15,0.95)\) together with guarded margin-comfort probing and the
+ambiguity guard. Subsequent experiments distinguish these roles explicitly
+instead of retuning the parameters per workload.
 
 \subsection{Deterministic Certification Quality}
 \label{subsec:exp-certification}
@@ -1744,10 +1793,11 @@ This subsection will compare against HeavyLocker under equal static local-memory
 \subsection{Hybrid Exact-Approximate Tracking}
 \label{subsec:exp-hybrid}
 We next evaluate the hybrid extension of Section~\ref{sec:extensions}. The
-controller uses the quality-oriented profile from above, with
-\(\varepsilon_M=0.10\), \(\alpha=0.90\), guarded margin-comfort probing, and
-ambiguity enabled. The only change is local telemetry: the baseline uses a
-single approximate Space-Saving summary, while the hybrid tracker promotes
+controller uses the complete-controller operating point selected in
+Section~\ref{subsubsec:ambiguity-ablation}: \(\varepsilon_M=0.15\),
+\(\alpha=0.95\), guarded margin-comfort probing, and ambiguity enabled. The
+only change is local telemetry: the baseline uses a single approximate
+Space-Saving summary, while the hybrid tracker promotes
 \(\mathrm{Top}_n^t\cup K_+^t\cup K_?^t\) from window \(t\) into exact counters
 for window \(t+1\), then applies the same controller to the residual tail.
 
@@ -1770,22 +1820,27 @@ memory is mean worker memory, and HH F1 is reported in percent.}
 Figure~\ref{fig:hybrid-ablation} shows that the hybrid layer is most useful when
 the promoted head removes mass that would otherwise consume approximate
 capacity. On the MILP stress workloads, hybrid tracking improves the memory and
-quality dimensions at the same time: threshold-normalized error falls by
-13.6--54.2\%, while worker memory falls by 18.0--25.2\% for \(n=200\) and
-\(n=400\). This is the desired effect of the decomposition. Exact counters
-absorb keys that are persistently important or certificate-relevant, so the
-residual sketch spends its counters on a smaller and more informative tail.
+quality dimensions at the same time. Threshold-normalized error falls by
+16.0\%, 33.8\%, and 70.8\% for \(n=100,200,400\), respectively, while worker
+memory falls by 17.5--19.6\%. This is the desired effect of the decomposition.
+Exact counters absorb keys that are persistently important or
+certificate-relevant, so the residual sketch spends its counters on a smaller
+and more informative tail. The reduction in ambiguous candidates is also
+large, from 77.8\% to 84.8\% across the three MILP workloads, which explains
+why HH F1 improves together with frequency error.
 
 The persistent-locality workloads are less demanding in absolute error, so the
 interpretation is different. For \(n=100\) and \(n=200\), the hybrid tracker
-still reduces both error and memory, but the absolute error levels are already
-near zero. At \(n=400\), the baseline has no measurable AAE left to reduce; the
-hybrid variant therefore buys a perfect HH F1 score at a small memory premium.
-This is not a reason to treat hybrid tracking as the default core mechanism.
-Rather, it supports the framing of Section~\ref{sec:extensions}: when stable or
-certificate-relevant head keys exist, exact promotion can sharpen the residual
-problem, but its value depends on whether the approximate baseline is still
-spending meaningful resources on that head.
+still reduces error and memory, but the absolute error levels are already close
+to zero. At \(n=400\), the baseline has no measurable AAE left to reduce; the
+hybrid variant instead removes the remaining ambiguity and reaches perfect HH
+F1 at an 8.9\% worker-memory premium. The result should therefore not be read as
+a claim that exact promotion is always cheaper. It supports the narrower
+framing of Section~\ref{sec:extensions}: when stable or certificate-relevant
+head keys consume meaningful approximate capacity, exact promotion sharpens the
+residual problem; when the approximate controller has already resolved the
+frequency-error objective, the hybrid layer mainly buys certificate sharpness
+and HH-quality headroom.
 
 \subsection{Runtime and Scalability}
 \label{subsec:exp-runtime}

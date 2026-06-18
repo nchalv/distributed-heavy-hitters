@@ -31,6 +31,7 @@ fi
 
 SS_EPS="${SS_EPS:-per-item}"
 RES_GUARD_WINDOW="${RES_GUARD_WINDOW:-2}"
+PROBE_STRATEGY="${PROBE_STRATEGY:-bracket}"
 CLEAN_OUTPUT="${CLEAN_OUTPUT:-1}"
 DRY_RUN="${DRY_RUN:-0}"
 
@@ -83,6 +84,7 @@ if [[ "${DRY_RUN}" != "1" ]]; then
     printf 'residual_guard_window=%s\n' "${RES_GUARD_WINDOW}"
     printf 'downward_probing=on\n'
     printf 'probe_residual_guard=on\n'
+    printf 'probe_strategy=%s\n' "${PROBE_STRATEGY}"
     printf 'ambiguity_adjustment=off\n'
     printf 'ss_error_mode=%s\n' "${SS_EPS}"
   } > "${OUT_DIR}/configuration.txt"
@@ -106,10 +108,10 @@ for dataset in "${DATASETS[@]}"; do
   for epsilon_m in "${EPSILON_M_GRID[@]}"; do
     rm="$(awk -v epsilon_m="${epsilon_m}" -v n="${n_param}" 'BEGIN { printf "%.10g", epsilon_m / n }')"
     for alpha in "${ALPHA_VALUES[@]}"; do
-      method="oracle,ss[policy=difficulty alpha-req=${alpha} r-m=${rm} res-guard-window=${RES_GUARD_WINDOW} downward-probing=on probe-residual-guard=on amb-adjust=off diff-mode=predictive ss-eps=${SS_EPS}]"
+      method="oracle,ss[policy=difficulty alpha-req=${alpha} r-m=${rm} res-guard-window=${RES_GUARD_WINDOW} downward-probing=on probe-residual-guard=on probe-strategy=${PROBE_STRATEGY} amb-adjust=off diff-mode=predictive ss-eps=${SS_EPS}]"
       csv_out="${CSV_DIR}/${dataset}_rm${rm}_alpha${alpha}.csv"
 
-      echo "running ${dataset}: n=${n_param}, epsilon_m=${epsilon_m}, r_m=${rm}, alpha=${alpha}, downward_probing=on, residual_guard=on, ambiguity=off"
+      echo "running ${dataset}: n=${n_param}, epsilon_m=${epsilon_m}, r_m=${rm}, alpha=${alpha}, downward_probing=on, residual_guard=on, probe_strategy=${PROBE_STRATEGY}, ambiguity=off"
       command=(
         "${HH_BENCH}"
         "${stream}"

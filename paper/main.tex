@@ -118,7 +118,7 @@
 %% article.
 % --- BEGIN inlined from sections_content/00_abstract.tex ---
 \begin{abstract}
-Modern distributed stream processing systems rely on partitioning to scale, but workload skew can severely degrade performance by overloading downstream workers. Identifying global heavy hitters is essential for mitigation, yet it remains a challenging coordinator-side inference problem when raw records cannot be centralized and local partition memory is strictly bounded. In this paper, we propose a unified framework for distributed heavy-hitter tracking that bridges deterministic inference and adaptive memory provisioning. First, we introduce a routing-agnostic certification layer that converts bounded local Space-Saving telemetry into deterministic global frequency intervals. By explicitly decomposing coordinator error into reporter inflation and hidden non-reporter mass, we establish a strict discoverability floor that guarantees no global heavy hitter is missed. Second, we build a capacity controller on top of these certificates. An observed margin violation activates an origin-aware upward response, whereas memory is released only through measured downward probes because high-capacity telemetry cannot certify an unobserved smaller summary. A residual guard prevents a failed probe from being repeated aggressively, while a separate materiality--cost guard raises memory only when doing so resolves a worthwhile fraction of threshold-crossing ambiguity. We also show how the same certification and planning logic extends to a hybrid exact-approximate regime that reserves exact state for stable dominant keys while tracking the residual tail approximately. Extensive evaluations demonstrate that our framework provides robust deterministic guarantees while optimizing the memory-quality tradeoff across highly volatile streams.
+Modern distributed stream processing systems rely on partitioning to scale, but workload skew can severely degrade performance by overloading downstream workers. Identifying global heavy hitters is essential for mitigation, yet it remains a challenging coordinator-side inference problem when raw records cannot be centralized and local partition memory is strictly bounded. In this paper, we propose a unified framework for distributed heavy-hitter tracking that bridges deterministic inference and adaptive memory provisioning. First, we introduce a routing-agnostic certification layer that converts bounded local Space-Saving telemetry into deterministic global frequency intervals. By explicitly decomposing coordinator error into reporter inflation and hidden non-reporter mass, we establish a capacity floor that guarantees no global heavy hitter is missed at the candidate stage. Second, we build a capacity controller on top of these certificates. An observed margin violation activates an origin-aware upward response, whereas memory is released only through measured downward probes because high-capacity telemetry cannot certify an unobserved smaller summary. A residual guard prevents a failed probe from being repeated aggressively, while a separate materiality--cost guard raises memory only when doing so resolves a worthwhile fraction of threshold-crossing ambiguity. We also show how the same certification and planning logic extends to a hybrid exact-approximate regime that reserves exact state for stable dominant keys while tracking the residual tail approximately. Extensive evaluations demonstrate that our framework provides robust deterministic guarantees while optimizing the memory-quality tradeoff across highly volatile streams.
 \end{abstract}
 % --- END inlined from sections_content/00_abstract.tex ---
 
@@ -289,17 +289,20 @@ that encloses the true global frequency \(p^t(k)\). These intervals support a th
 
 A central organizational principle of the paper is the separation between \emph{realized-window certification} and \emph{next-window planning}. Once a window has completed and all local telemetry has been received, the coordinator-side guarantees derived in this paper are deterministic. They do not rely on routing randomness, temporal smoothness, or workload stationarity. By contrast, choosing memory for the next window is inherently predictive: it requires extrapolating from what was observed in window \(t\) to what may happen in window \(t+1\). This distinction is not merely expository. It is what allows the paper to make strong correctness claims about the realized window while treating adaptation as a separate, explicitly predictive layer. If the system mis-sizes a future window, the realized-window certificates remain valid; only the sharpness of the next round of inference is affected.
 
-The output of the realized-window layer is therefore concrete and finite. For each window \(t\), the coordinator returns the candidate set \(\mathcal{U}^t\), deterministic frequency intervals for all candidates, and a partition of candidates into certified positives, certified negatives, and ambiguous keys. Together, these objects form the coordinator-side certificate for the realized window. The planning layer then uses those same certificates to infer a memory-valued requirement estimate for the realized window, and to convert that estimate into a sizing decision for the next window. Figure~\ref{fig:pipeline} summarizes this architecture.
+The output of the realized-window layer is therefore concrete and finite. For each window \(t\), the coordinator returns the candidate set \(\mathcal{U}^t\), deterministic frequency intervals for all candidates, and a partition of candidates into certified positives, certified negatives, and ambiguous keys. Together, these objects form the coordinator-side certificate for the realized window. The planning layer then uses those same certificates to derive service-margin pressure and ambiguity signals, and to convert them into an adaptive sizing decision for the next window. Figure~\ref{fig:pipeline} summarizes this architecture.
 
-Table~\ref{tab:notation} summarizes the main notation used throughout the paper.
+Table~\ref{tab:notation} summarizes the notation used by the stream model,
+local telemetry contract, and deterministic certification layer. Controller
+and hybrid-tracking symbols are introduced separately when the adaptive layer
+is developed.
 
 \begin{table}[t]
 \centering
-\caption{Main notation. Time superscripts are omitted when the reference window is clear from context.}
+\caption{Stream and certification notation. Time superscripts are omitted when the reference window is clear from context.}
 \label{tab:notation}
 \scriptsize
 \setlength{\tabcolsep}{3pt}
-\renewcommand{\arraystretch}{0.96}
+\renewcommand{\arraystretch}{0.98}
 \begin{tabularx}{\columnwidth}{@{}lX@{}}
 \toprule
 \textbf{Symbol} & \textbf{Meaning} \\
@@ -327,32 +330,7 @@ Table~\ref{tab:notation} summarizes the main notation used throughout the paper.
 \midrule
 \(\underline p(k),\overline p(k)\) & Deterministic lower and upper bounds on the true global relative frequency \(p(k)\) \\
 \(K_+,K_-,K_?\) & Certified heavy hitters, certified non-heavy-hitters, and ambiguous candidates \\
-\(T\) & HH-relevant target set \(K_+ \cup K_?\) used by the planning layer \\
 \(I(k),H(k),M(k)\) & Reporter-inflation term, hidden-mass term, and composite deterministic margin \\
-\midrule
-\multicolumn{2}{@{}l}{\textit{Planning and adaptive control}} \\
-\midrule
-\(\varepsilon_M,r_M\) & Fractional and absolute deterministic margin budgets, with \(r_M=\varepsilon_M/n\) \\
-\(\alpha\) & Service fraction used to aggregate per-key deterministic margins \\
-\(M_\alpha\) & Window-level service margin \(Q_\alpha(\{M(k):k\in T\})\) \\
-\(q_\uparrow\) & Upward capacity demand activated only when \(M_\alpha>r_M\) \\
-\(q_{\mathrm{probe}}\) & Capacity used for a physical downward probe \\
-\(\bar q\) & Baseline target selected by upward response or downward probing \\
-\(L,g\) & Failed-probe lower boundary and temporary recovery guard \\
-\(s(k),A\) & Per-key separation demand and selected ambiguity proposal \\
-\(\ell_{\mathrm{Amb}},a_{\mathrm{Amb}}\) & Observed and geometrically persisted ambiguity margins in log-capacity space \\
-\(\beta\) & Geometric persistence factor for an unrefreshed ambiguity margin \\
-\(q\) & Deployed common local summary size in the core regime \\
-\midrule
-\multicolumn{2}{@{}l}{\textit{Hybrid exact--approximate tracking}} \\
-\midrule
-\(E,e,r,b\) & Promoted exact head, exact-head counters, residual-summary counters, and total hybrid local budget \\
-\(\mathcal W_{i,\mathrm{res}},\mathcal S_{i,\mathrm{res}}\) & Residual substream and residual Space-Saving summary at partition \(i\) \\
-\(N_{\mathrm{res}},N_{i,\mathrm{res}},\mathcal A_{\mathrm{res}}\) & Global residual mass, partition-local residual mass, and residual-active partitions \\
-\(P_E\) & Fraction of global mass captured exactly by the promoted head \(E\) \\
-\(R_{\mathrm{res}}(k),c_{i,\mathrm{res}}\) & Residual reporting set of key \(k\) and residual minimum-counter bound at partition \(i\) \\
-\(\underline p_{\mathrm{res}}(k),\overline p_{\mathrm{res}}(k)\) & Deterministic residual frequency bounds for keys outside the exact head \\
-\(r_{\min}\) & Residual discoverability floor in the hybrid regime \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -856,7 +834,7 @@ Equation~\eqref{eq:qreq-perkey} is deliberately asymmetric. A violation produces
 
 The planning signal now has a precise interpretation. If the service margin violates its budget, \(q_\uparrow^t\) estimates the larger capacity suggested by the inverse envelope model at the observed origin \(q^t\). If the budget is met, the coordinator learns no smaller target. This prevents a well-provisioned window from manufacturing an unsupported recommendation to return to \(q=n\).
 
-The remaining question is therefore not how to forecast a bidirectional required-capacity sequence. It is how to combine immediate upward response with cautious experimental release. Section~\ref{sec:predictive} addresses this by physically probing lower capacities only after repeated sufficiency, using each probe's own telemetry to accept the reduction or compute a fresh upward response.
+The remaining question is therefore not how to forecast a bidirectional capacity target. It is how to combine immediate one-sided upward demand with cautious experimental release. Section~\ref{sec:predictive} addresses this by physically probing lower capacities only after repeated sufficiency, using each probe's own telemetry to accept the reduction or compute a fresh upward response.
 
 
 
@@ -864,6 +842,52 @@ The remaining question is therefore not how to forecast a bidirectional required
 \label{sec:predictive}
 
 Section~\ref{sec:requirement} defined a window-level service margin \(M_\alpha^t\) and a one-sided upward demand \(q_\uparrow^t\). This section completes the controller. Demonstrated insufficiency activates the upward response immediately. Demonstrated sufficiency holds the current capacity and may eventually authorize a physical downward probe. Threshold-crossing ambiguity is handled separately through an observable capacity frontier.
+
+\begin{table}[t]
+\centering
+\caption{Controller and telemetry-regime notation. Time superscripts are omitted when the reference window is clear from context.}
+\label{tab:controller-notation}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\renewcommand{\arraystretch}{0.96}
+\begin{tabularx}{\columnwidth}{@{}lX@{}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Service-margin pressure and probing}} \\
+\midrule
+\(T\) & HH-relevant target set \(K_+ \cup K_?\) served by the planning layer \\
+\(\varepsilon_M,r_M\) & Fractional and absolute deterministic margin budgets, with \(r_M=\varepsilon_M/n\) \\
+\(\alpha,M_\alpha\) & Service fraction and window-level margin \(Q_\alpha(\{M(k):k\in T\})\) \\
+\(q_\uparrow\) & One-sided upward capacity demand activated when \(M_\alpha>r_M\) \\
+\(\rho\) & Capacity-relative pressure ratio \(M_\alpha/r_M\) used to limit probe depth \\
+\(q_{\mathrm{probe}}\) & Capacity used for a physical downward probe \\
+\(\bar q\) & Baseline target emitted by upward response or downward probing \\
+\(L,g\) & Failed-probe lower boundary and temporary recovery guard \\
+\(q\) & Final deployed common local summary size in the core regime \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Threshold-crossing ambiguity}} \\
+\midrule
+\(U_A(k),\Delta_A(k),w_A(k)\) & Obstructing one-sided uncertainty, threshold distance, and materiality weight \\
+\(s(k),A\) & Per-key separation demand and selected ambiguity proposal \\
+\(\mathcal K_A,\mathcal C_A\) & Ambiguous keys not covered by \(\bar q\), and their candidate separation capacities \\
+\(G_A(x),C_A(x),V_A(x)\) & Ambiguity gain, proportional cost, and frontier utility at capacity \(x\) \\
+\(\ell_{\mathrm{Amb}},a_{\mathrm{Amb}}\) & Observed and geometrically persisted ambiguity margins in log-capacity space \\
+\(\beta\) & Geometric persistence factor for an unrefreshed ambiguity margin \\
+\midrule
+\multicolumn{2}{@{}l}{\textit{Hybrid exact--approximate tracking}} \\
+\midrule
+\(E,e,r,b\) & Promoted exact head, exact-head counters, residual-summary counters, and total hybrid local budget \\
+\(\mathrm{Top}_n\) & \(n\) largest estimated candidates promoted together with \(K_+\cup K_?\) \\
+\(\mathcal W_{i,\mathrm{res}},\mathcal S_{i,\mathrm{res}}\) & Residual substream and residual Space-Saving summary at partition \(i\) \\
+\(N_{\mathrm{res}},N_{i,\mathrm{res}},\mathcal A_{\mathrm{res}}\) & Global residual mass, partition-local residual mass, and residual-active partitions \\
+\(P_E\) & Fraction of global mass captured exactly by the promoted head \(E\) \\
+\(R_{\mathrm{res}}(k),c_{i,\mathrm{res}}\) & Residual reporting set of key \(k\) and residual minimum-counter bound at partition \(i\) \\
+\(\underline p_{\mathrm{res}}(k),\overline p_{\mathrm{res}}(k)\) & Deterministic residual frequency bounds for keys outside the exact head \\
+\(r_{\min}\) & Residual discoverability floor in the hybrid regime \\
+\bottomrule
+\end{tabularx}
+\end{table}
 
 \paragraph{Capacity notation.}
 The controller has a simple three-stage flow. The symbol \(q^t\) is the
@@ -876,76 +900,6 @@ evidence or temporary guard state rather than additional deployed capacities.
 The controller is initialized with \(q^0=n\) and \(L^0=n\). The recovery guard
 \(g^t\) is inactive until the first failed downward probe creates a recovered
 demand to retain.
-
-\begin{figure}[t]
-\centering
-\resizebox{\columnwidth}{!}{%
-\begin{tikzpicture}[
-    node distance=1.35cm and 2.1cm,
-    >=Latex,
-    every node/.style={align=center},
-    state/.style={
-        draw=black!70,
-        rounded corners=4pt,
-        very thick,
-        text width=2.8cm,
-        inner sep=5pt,
-        fill=black!3,
-        font=\footnotesize
-    },
-    trans/.style={
-        font=\scriptsize\sffamily,
-        text=black!80,
-        fill=white,
-        inner sep=1.6pt
-    }
-]
-
-\node[state] (steady) {Baseline hold\\capacity \(q^t\)};
-\node[state, right=of steady] (probe) {Downward probe\\\(q_{\mathrm{probe}}^{t+1}\)};
-\node[state, below=of steady] (upward) {Upward response\\\(\max\{L^t,q_\uparrow^t\}\)};
-\node[state, below=of probe] (guard) {Guarded recovery\\hold recovered demand};
-
-\draw[->, thick, draw=black!70]
-  (steady.east) to[bend left=14]
-  node[trans] {two sufficient\\windows}
-  (probe.west);
-
-\draw[->, thick, draw=black!70]
-  (probe.west) to[bend left=14]
-  node[trans] {sufficient\\accept probe}
-  (steady.east);
-
-\draw[->, thick, draw=black!70]
-  (probe.south) --
-  node[trans] {failed probe\\fresh upward recovery}
-  (guard.north);
-
-\draw[->, thick, draw=black!70]
-  (guard.west) --
-  node[trans, sloped] {recovery\\confirmed}
-  (steady.south east);
-
-\draw[->, thick, draw=black!70]
-  (steady.south west) to[bend right=14]
-  node[trans, left] {insufficient\\\(M_\alpha^t>r_M\)}
-  (upward.north west);
-
-\draw[->, thick, draw=black!70]
-  (upward.north east) to[bend right=14]
-  node[trans, right] {deploy\\baseline}
-  (steady.south);
-
-\draw[->, thick, draw=black!70]
-  (guard.south) |- ++(0,-0.45) -|
-  node[trans, near start, below] {insufficient}
-  (upward.south);
-\end{tikzpicture}%
-}
-\caption{Lifecycle of the temporal sizing controller. Margin violations trigger immediate upward response, whereas memory release is attempted only through measured downward probes. A residual guard \(g^t\) prevents the controller from immediately repeating a failed probe below the recovered demand.}
-\Description{State-machine diagram with states for baseline hold, downward probe, upward response, and guarded recovery. Transitions show margin violations, successful probes, failed probes, and recovery confirmation.}
-\label{fig:controller-lifecycle}
-\end{figure}
 
 \subsection{Capacity-Relative Evidence}
 \label{subsec:pred-forecast}
@@ -1041,6 +995,76 @@ and is retained until the recovery capacity has produced two sufficient observat
 
 This guarded margin-comfort policy is the canonical temporal controller. It reacts immediately to demonstrated insufficiency, never treats successful high-capacity telemetry as a certified counterfactual lower target, and uses observed headroom only to moderate the depth of measured probes. Its state and per-window control cost are \(O(1)\); the only additional cost of exploration is the occasional window executed at the probed capacity.
 
+\begin{figure}[t]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.35cm and 2.1cm,
+    >=Latex,
+    every node/.style={align=center},
+    state/.style={
+        draw=black!70,
+        rounded corners=4pt,
+        very thick,
+        text width=2.8cm,
+        inner sep=5pt,
+        fill=black!3,
+        font=\footnotesize
+    },
+    trans/.style={
+        font=\scriptsize\sffamily,
+        text=black!80,
+        fill=white,
+        inner sep=1.6pt
+    }
+]
+
+\node[state] (steady) {Baseline hold\\capacity \(q^t\)};
+\node[state, right=of steady] (probe) {Downward probe\\\(q_{\mathrm{probe}}^{t+1}\)};
+\node[state, below=of steady] (upward) {Upward response\\\(\max\{L^t,q_\uparrow^t\}\)};
+\node[state, below=of probe] (guard) {Guarded recovery\\hold recovered demand};
+
+\draw[->, thick, draw=black!70]
+  (steady.east) to[bend left=14]
+  node[trans] {two sufficient\\windows}
+  (probe.west);
+
+\draw[->, thick, draw=black!70]
+  (probe.west) to[bend left=14]
+  node[trans] {sufficient\\accept probe}
+  (steady.east);
+
+\draw[->, thick, draw=black!70]
+  (probe.south) --
+  node[trans] {failed probe\\fresh upward recovery}
+  (guard.north);
+
+\draw[->, thick, draw=black!70]
+  (guard.west) --
+  node[trans, sloped] {recovery\\confirmed}
+  (steady.south east);
+
+\draw[->, thick, draw=black!70]
+  (steady.south west) to[bend right=14]
+  node[trans, left] {insufficient\\\(M_\alpha^t>r_M\)}
+  (upward.north west);
+
+\draw[->, thick, draw=black!70]
+  (upward.north east) to[bend right=14]
+  node[trans, right] {emit\\baseline}
+  (steady.south);
+
+\draw[->, thick, draw=black!70]
+  (guard.south) |- ++(0,-0.45) -|
+  node[trans, near start, below] {insufficient}
+  (upward.south);
+\end{tikzpicture}%
+}
+\caption{Lifecycle of the temporal baseline controller. Margin violations trigger immediate upward response, whereas memory release is attempted only through measured downward probes. A residual guard \(g^t\) prevents the controller from immediately repeating a failed probe below the recovered demand. The ambiguity guard is applied after this baseline decision; if it raises the final deployed capacity, the next window re-enters this lifecycle with that larger \(q^t\) as the observed origin.}
+\Description{State-machine diagram with states for baseline hold, downward probe, upward response, and guarded recovery. Transitions show margin violations, successful probes, failed probes, and recovery confirmation.}
+\label{fig:controller-lifecycle}
+\end{figure}
+
 \subsection{Materiality--Cost Ambiguity Guard}
 \label{subsec:ambiguity}
 \label{subsec:pred-effective}
@@ -1134,7 +1158,7 @@ a_{\mathrm{Amb}}^t
 \right\},
 \qquad a_{\mathrm{Amb}}^{-1}:=0.
 \end{equation}
-Here \(\beta\) has one role only: it is the fraction of an unrefreshed ambiguity margin retained for one additional window. The default implementation uses \(\beta=1/2\). Crucially, \(a_{\mathrm{Amb}}^t\) remains independent of the baseline controller. Ambiguity cannot alter the failed-probe boundary \(L^t\), the recovery guard \(g^t\), or any other temporal-control state, and baseline updates cannot manufacture ambiguity.
+Here \(\beta\) has one role only: it is the fraction of an unrefreshed ambiguity margin retained for one additional window. The default implementation uses \(\beta=1/2\). Crucially, \(a_{\mathrm{Amb}}^t\) is maintained as state separate from the baseline controller: the ambiguity frontier does not directly write the failed-probe boundary \(L^t\), the recovery guard \(g^t\), or the probe counters, and baseline updates cannot manufacture ambiguity. The separation is not a claim of observational independence. If ambiguity raises the deployed capacity \(q^{t+1}\), then the next window's certificates are collected at that larger capacity, and the temporal controller will correctly interpret the resulting margin evidence at that actual origin.
 
 \subsection{Final Actuation}
 \label{subsec:pred-actuation}
@@ -1153,9 +1177,9 @@ The baseline controller always enforces \(\bar q^{t+1}\ge n\), and
 the discoverability floor of Proposition~\ref{prop:discoverability} and can
 never lower the baseline. Recent threshold-crossing ambiguity can raise the
 next-window target, but only through its own decayed log-capacity margin. It
-never alters the upward-response or probing state.
+does not directly alter the upward-response or probing state.
 
-Equation~\eqref{eq:actuation} is the canonical control law of the framework. The temporal controller supplies \(\bar q^{t+1}\); unresolved threshold-crossing certificates can only raise that value through their independently persisted ambiguity margin.
+Equation~\eqref{eq:actuation} is the canonical control law of the framework. The temporal controller supplies \(\bar q^{t+1}\); unresolved threshold-crossing certificates can only raise that value through their independently persisted ambiguity margin. Once deployed, however, the resulting \(q^{t+1}\) is the true origin capacity for the next window's service-margin pressure and probe-depth calculations. Ambiguity is therefore isolated at the state-update level, not removed from the closed-loop feedback path.
 
 \subsection{Interpretation of the Control Objective}
 \label{subsec:pred-interpretation}
@@ -1166,7 +1190,7 @@ By construction, \(q^{t+1}\ge\bar q^{t+1}\): ambiguity can never lower the basel
 
 This interpretation removes the need for an ambiguity-specific gain, resolution floor, or capacity cap. The frontier translates deterministic certificate geometry directly into a bounded memory decision, while \(\beta\) supplies short-lived persistence only to the ambiguity margin.
 
-The adaptive sizing layer is now complete. The controller increases memory from observed margin violations, releases it only through physical probes, constructs an independent ambiguity proposal from the materiality--cost frontier, and takes the larger proposal at actuation. Baseline sufficiency evidence and certificate-completeness pressure therefore interact only at final actuation, not through each other's state.
+The adaptive sizing layer is now complete. The controller increases memory from observed margin violations, releases it only through physical probes, constructs an independent ambiguity proposal from the materiality--cost frontier, and takes the larger proposal at actuation. Baseline sufficiency evidence and certificate-completeness pressure therefore use separate state variables, while the deployed capacity couples them through ordinary closed-loop observation.
 
 This formulation preserves the main design principle of the paper: every control signal is expressed directly in memory units or as a log-capacity margin. The remaining section shows how the same certification and planning logic extends to a richer local summary regime with an exact head and an approximate residual tail.
 
@@ -1392,7 +1416,7 @@ E^{t+1}=\mathrm{Top}_n^t\cup K_+^t\cup K_?^t,
 \]
 where \(\mathrm{Top}_n^t\) denotes the \(n\) largest estimated candidates in the realized window. This promoted set captures stable high-rank keys even when certification is conservative, while still retaining all certified-positive and unresolved boundary keys. Longer-horizon variants can require repeated membership or rank stability before promotion, but the essential point is unchanged: the hybrid regime is a structured refinement of the same certification and capacity-pressure architecture, not a separate inference model.
 
-The core framework of the paper remains intentionally narrow: a common-size local Space-Saving summary at each partition, deterministic coordinator-side certification, requirement inversion, and predictive next-window sizing. The hybrid regime broadens only the local telemetry contract: exact counters remove a stable head from the approximate problem, while residual summaries preserve the same signed-envelope analysis for the remaining keys.
+The core framework of the paper remains intentionally narrow: a common-size local Space-Saving summary at each partition, deterministic coordinator-side certification, service-margin pressure, and adaptive next-window sizing. The hybrid regime broadens only the local telemetry contract: exact counters remove a stable head from the approximate problem, while residual summaries preserve the same signed-envelope analysis for the remaining keys.
 
 This extension does not change the conceptual structure of the paper. Local telemetry still induces deterministic realized-window certificates, those certificates induce a margin test and one-sided pressure signal, and the controller combines upward response with measured release. The hybrid regime is therefore best understood as a structured refinement of the local tracking layer rather than as an alternative formulation of the problem.
 
@@ -1514,7 +1538,7 @@ while pressure gating often delays release after difficulty falls.
 
 \subsection{Controller Configuration}
 \label{subsec:exp-config}
-We configure the controller in stages. The first experiment selects two operating profiles for the margin and service-fraction pair under a fixed residual-guarded probing reference. The second isolates the temporal release mechanism and selects the final probe-depth policy. The third evaluates ambiguity actuation after that baseline controller has been fixed. This ordering separates the service objective from the choice of downward-release rule while retaining ablations that identify where the final behavior originates.
+We configure the controller in stages. The first experiment selects two operating profiles for the margin and service-fraction pair under a fixed residual-guarded probing reference. The second isolates the temporal release mechanism and selects the final probe-depth policy. The third evaluates ambiguity actuation after that baseline controller has been fixed. The fourth asks whether the local telemetry layer should remain approximate-only or promote a certificate-relevant head into exact counters. This ordering separates the service objective, temporal release rule, ambiguity actuation, and telemetry regime while retaining ablations that identify where the final behavior originates.
 
 \subsubsection{Margin and Service-Fraction Calibration}
 \label{subsubsec:margin-service-calibration}
@@ -1666,57 +1690,52 @@ Appendix~\ref{app:controller-ablation-diagrams} gives compact state-machine
 diagrams for the ablation controllers, complementing the main lifecycle
 diagram in Figure~\ref{fig:controller-lifecycle}.
 
-\begin{table*}[b]
+\begin{table}[t]
 \caption{Ambiguity-guard ablation under the quality-oriented and
 memory-oriented margin profiles. Header arrows indicate whether lower or
 higher values are preferable. Error is \(10^3 n\cdot\mathrm{AAE}/N\), and HH
-F1 is reported on a 0--100 scale.}
+F1 is reported on a 0--100 scale. ``MILP'' denotes the MILP stress workload;
+``Loc.'' denotes persistent locality.}
 \label{tab:ambiguity-ablation}
 \centering
-\small
-\setlength{\tabcolsep}{5pt}
-\renewcommand{\arraystretch}{1.04}
-\begin{tabular*}{0.92\textwidth}{@{\extracolsep{\fill}}llccD{.}{.}{2.5}rr@{}}
+\setlength{\tabcolsep}{2.5pt}
+\renewcommand{\arraystretch}{0.98}
+\begin{tabular}{@{}llccD{.}{.}{2.5}cc@{}}
 \toprule
-Workload & \(n\) & \(\varepsilon_M\) & Guard &
-\multicolumn{1}{c}{Error \((10^{-3})\downarrow\)} &
-\(\overline q/n\;\downarrow\) &
+Data & \(n\) & \(\varepsilon\) & Guard &
+\multicolumn{1}{c}{Err.\(\downarrow\)} &
+\(\bar q/n\downarrow\) &
 HH F1 (\%) \(\uparrow\) \\
 \midrule
-MILP stress & 100 & 0.10 & off & 4.65 & 1.46 & 97.0 \\
+MILP        & 100 & 0.10 & off & 4.65 & 1.46 & 97.0 \\
             &     &      & on  & 0.747 & 2.25 & 99.7 \\
             &     & 0.15 & off & 13.4 & 1.27 & 93.7 \\
             &     &      & on  & 0.706 & 2.11 & 99.6 \\
-\addlinespace[1pt]
             & 200 & 0.10 & off & 1.79 & 1.81 & 98.9 \\
             &     &      & on  & 0.935 & 1.97 & 99.7 \\
             &     & 0.15 & off & 7.17 & 1.50 & 97.0 \\
             &     &      & on  & 0.892 & 2.11 & 99.6 \\
-\addlinespace[1pt]
             & 400 & 0.10 & off & 1.22 & 1.66 & 97.9 \\
             &     &      & on  & 1.05 & 2.49 & 98.5 \\
             &     & 0.15 & off & 1.77 & 1.60 & 97.3 \\
             &     &      & on  & 1.03 & 1.89 & 97.9 \\
-\addlinespace[2pt]
 \midrule
-Persistent locality
+Loc.
             & 100 & 0.10 & off & 0.0192 & 1.20 & 97.5 \\
             &     &      & on  & 0.00202 & 1.68 & 99.7 \\
             &     & 0.15 & off & 0.0197 & 1.14 & 97.6 \\
             &     &      & on  & 0.00202 & 1.64 & 99.7 \\
-\addlinespace[1pt]
             & 200 & 0.10 & off & 0.0147 & 1.12 & 97.5 \\
             &     &      & on  & 0.00320 & 1.22 & 98.5 \\
             &     & 0.15 & off & 0.0177 & 1.04 & 97.3 \\
             &     &      & on  & 0.00320 & 1.14 & 98.5 \\
-\addlinespace[1pt]
             & 400 & 0.10 & off & 0.00144 & 1.00 & 98.6 \\
             &     &      & on  & 0 & 1.02 & 98.9 \\
             &     & 0.15 & off & 0.00144 & 1.00 & 98.6 \\
             &     &      & on  & 0 & 1.02 & 98.9 \\
 \bottomrule
-\end{tabular*}
-\end{table*}
+\end{tabular}
+\end{table}
 
 \subsubsection{Ambiguity-Guard Ablation}
 \label{subsubsec:ambiguity-ablation}
@@ -1770,34 +1789,14 @@ temporal policy is fixed, however, the ambiguity guard gives the controller a
 more targeted way to spend memory than globally tightening the margin for all
 HH-relevant candidates.
 
-\subsubsection{Selected Operating Profiles}
-The configured controller now has two named profiles. The quality-oriented
-profile \((0.10,0.95)\) is the strict reference used to select temporal
-probing behavior. The complete adaptive controller uses the memory-oriented
-profile \((0.15,0.95)\) together with guarded margin-comfort probing and the
-ambiguity guard. Subsequent experiments distinguish these roles explicitly
-instead of retuning the parameters per workload.
-
-\subsection{Deterministic Certification Quality}
-\label{subsec:exp-certification}
-This subsection will evaluate the realized-window certification layer independently of temporal control. The planned analysis varies local capacity and partitioning regime, then reports candidate recall, certified-positive precision, ambiguity mass, and interval width. This isolates the information quality available to any sizing policy built on the same telemetry.
-
-\subsection{End-to-End Adaptive Sizing}
-\label{subsec:exp-end-to-end}
-This subsection will evaluate the complete controller across stationary, drifting, scheduled-difficulty, adversarial, and real traces. Static Space-Saving capacities will define the memory--quality frontier against which the two promoted adaptive profiles are compared. The principal outputs will be threshold-normalized error, HH quality, mean and volatile memory, and temporal response around regime changes.
-
-\subsection{Static-Memory Comparison with HeavyLocker}
-\label{subsec:exp-heavylocker}
-This subsection will compare against HeavyLocker under equal static local-memory budgets. Benign partitioning will establish the conventional baseline, while stress partitioning will test sensitivity to the random-routing assumption. The comparison will report HH precision, recall, F1, frequency error, and throughput without attributing adaptive behavior to a static baseline.
-
-\subsection{Hybrid Exact-Approximate Tracking}
+\subsubsection{Hybrid Exact-Approximate Tracking}
 \label{subsec:exp-hybrid}
-We next evaluate the hybrid extension of Section~\ref{sec:extensions}. The
-controller uses the complete-controller operating point selected in
-Section~\ref{subsubsec:ambiguity-ablation}: \(\varepsilon_M=0.15\),
-\(\alpha=0.95\), guarded margin-comfort probing, and ambiguity enabled. The
-only change is local telemetry: the baseline uses a single approximate
-Space-Saving summary, while the hybrid tracker promotes
+We next evaluate the hybrid extension of Section~\ref{sec:extensions} as a
+telemetry-regime choice. The controller uses the complete-controller operating
+point selected in Section~\ref{subsubsec:ambiguity-ablation}:
+\(\varepsilon_M=0.15\), \(\alpha=0.95\), guarded margin-comfort probing, and
+ambiguity enabled. The only change is local telemetry: the baseline uses a
+single approximate Space-Saving summary, while the hybrid tracker promotes
 \(\mathrm{Top}_n^t\cup K_+^t\cup K_?^t\) from window \(t\) into exact counters
 for window \(t+1\), then applies the same controller to the residual tail.
 
@@ -1842,12 +1841,38 @@ residual problem; when the approximate controller has already resolved the
 frequency-error objective, the hybrid layer mainly buys certificate sharpness
 and HH-quality headroom.
 
+\subsubsection{Selected Operating Profiles}
+The configured controller now has two named margin profiles.
+\((0.10,0.95)\) is the quality-oriented reference used to select temporal
+probing behavior. The complete adaptive controller uses the memory-oriented
+profile \((0.15,0.95)\) together with guarded margin-comfort probing and the
+ambiguity guard. The telemetry layer also has two promoted realizations:
+approximate-only Space-Saving as the simpler core regime, and the hybrid
+exact--approximate variant as an optional refinement when a stable or
+certificate-relevant head consumes meaningful approximate capacity. Subsequent
+experiments distinguish these roles explicitly instead of retuning the
+parameters per workload.
+
+\subsection{End-to-End Comparison with Static Baselines}
+\label{subsec:exp-end-to-end}
+This subsection will compare the selected adaptive system against fixed-memory
+alternatives. Both adaptive telemetry regimes are included: the approximate-only
+controller and the hybrid exact--approximate refinement. Static Space-Saving
+capacities define the internal memory--quality frontier, while HeavyLocker is
+included as an external static-memory baseline under matched worker-memory
+budgets. The workloads will include synthetic stress cases and real CAIDA
+windows so that the comparison covers controlled adversarial placement,
+persistent locality, and naturally occurring traffic structure. The principal
+outputs will be threshold-normalized error, HH precision/recall/F1, mean and
+tail worker memory, and temporal response around regime changes where
+applicable.
+
 \subsection{Runtime and Scalability}
 \label{subsec:exp-runtime}
 This subsection will report update throughput, coordinator reduction time, controller overhead, and telemetry memory while varying \(m\), \(n\), and candidate-set size. The goal is to separate the computational cost of deterministic certification from the cost of the local sketch updates.
 
 \subsection{Summary of Findings}
-This subsection will consolidate the completed findings after the remaining experiments are populated. It will distinguish empirical results about certificate quality, temporal adaptation, ambiguity actuation, external-baseline robustness, and runtime rather than repeating individual table entries.
+This subsection will consolidate the completed findings after the remaining experiments are populated. It will distinguish empirical results about temporal adaptation, ambiguity actuation, external-baseline robustness, hybrid tracking, and runtime rather than repeating individual table entries.
 
 \section{Related Work}
 \label{sec:related}
@@ -1883,7 +1908,7 @@ This phenomenon has been documented in data-center traffic. Benson et al.~\cite{
 
 A similar conclusion holds for textual and social-media streams. Diao et al.~\cite{diao2012bursty} show that microblog topics often evolve in bursty temporal patterns rather than as independent snapshots. Lehmann et al.~\cite{lehmann2012dynamical} further demonstrate that hashtag popularity on Twitter follows structured attention trajectories, indicating that collective attention exhibits recognizable temporal classes. More recently, Liu et al.~\cite{liu2023analyzing} study the persistence of news tweets and show that recent engagement behavior is predictive of short-term continuation. These results suggest that adjacent windows in textual streams often contain meaningful predictive signal about the continuation, decay, or transition of active topics.
 
-Our predictive controller is therefore grounded in an empirical regularity that appears across multiple stream domains: recent windows are often informative about the next one. The controller does not require stationarity or exact repetition of past behavior. It only relies on the weaker premise that short-horizon temporal dependence is common enough in practice to make recent baseline requirements useful inputs for next-window provisioning, while ambiguity acts as a conservative certificate-completeness guard at actuation time.
+Our adaptive controller is therefore grounded in an empirical regularity that appears across multiple stream domains: recent windows are often informative about the next one. The controller does not require stationarity or exact repetition of past behavior. It only relies on the weaker premise that short-horizon temporal dependence is common enough in practice to make recent service-margin pressure useful for next-window provisioning, while ambiguity acts as a conservative certificate-completeness guard at actuation time.
 
 
 \appendix

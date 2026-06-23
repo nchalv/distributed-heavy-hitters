@@ -56,8 +56,9 @@ def import_matplotlib():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.patches import Patch
+    from matplotlib.ticker import FormatStrFormatter
 
-    return plt, Patch
+    return plt, Patch, FormatStrFormatter
 
 
 def family_key(dataset: str) -> tuple[int, str]:
@@ -111,7 +112,7 @@ def panel_data(
 
 def metric_value(row: dict[str, str], metric: str) -> float:
     if metric == "error":
-        return fnum(row, "threshold_normalized_error")
+        return 1_000.0 * fnum(row, "threshold_normalized_error")
     if metric == "memory":
         return fnum(row, "mem_worker_total_kib")
     if metric == "f1":
@@ -127,6 +128,7 @@ def add_grouped_bars(
     metric: str,
     ylabel: str,
     title: str,
+    yformatter=None,
 ) -> None:
     width = 0.30
     offsets = [-width / 2.0, width / 2.0]
@@ -163,6 +165,8 @@ def add_grouped_bars(
     ax.set_xticks(xs)
     ax.set_xticklabels(tick_labels)
     ax.set_ylabel(ylabel)
+    if yformatter is not None:
+        ax.yaxis.set_major_formatter(yformatter)
     ax.set_title(title, fontsize=10)
     ax.grid(axis="y", alpha=0.28)
     ax.spines["top"].set_visible(False)
@@ -185,7 +189,7 @@ def main() -> int:
     if not rows:
         raise RuntimeError(f"no usable hybrid ablation rows found in {summary}")
 
-    plt, Patch = import_matplotlib()
+    plt, Patch, FormatStrFormatter = import_matplotlib()
     indexed = index_rows(rows)
     families = panel_data(rows)
     ordered_families = [family for _, family in sorted({family_key(row.get("dataset", "")) for row in rows}) if family in families]
@@ -207,8 +211,9 @@ def main() -> int:
             datasets=datasets,
             indexed=indexed,
             metric="error",
-            ylabel="Threshold-normalized error",
+            ylabel=r"Error ($10^3 n\cdot\mathrm{AAE}/N$)",
             title=f"{next(panel_letters)} {family}: error",
+            yformatter=FormatStrFormatter("%.3f"),
         )
         add_grouped_bars(
             row_axes[1],
